@@ -169,6 +169,8 @@ export default function AuthGate({ children }) {
     }, []);
 
     // Login con Google: intenta POPUP primero, fallback a REDIRECT
+    // AuthGate.jsx
+
     const signInGoogle = async () => {
         if (signingInRef.current) {
             LG.warn("[signInGoogle] ignored (busy)");
@@ -179,55 +181,65 @@ export default function AuthGate({ children }) {
         setError("");
 
         LG.group("[Google Sign-In]");
-        LG.info("UA mobile?:", isMobileWeb, "inApp?:", isInAppBrowser, "FORCE_POPUP:", FORCE_POPUP);
+        LG.info("UA mobile?:", isMobileWeb, "inApp?:", isInAppBrowser);
 
         const provider = new GoogleAuthProvider();
         provider.setCustomParameters({ prompt: "select_account" });
 
-        try {
-            // 1) Intentar POPUP SIEMPRE (desktop y móvil). Si bloquea, caeremos a redirect.
-            LG.info("→ trying signInWithPopup first");
-            const t = performance.now();
-            const cred = await signInWithPopup(auth, provider);
-            LG.info("popup OK", { uid: cred?.user?.uid, ms: Math.round(performance.now() - t) });
-        } catch (e) {
-            LG.error("[popup] error", e?.code, e?.message);
+        // =======================================================
+        // ======== AQUÍ ESTÁ EL CAMBIO IMPORTANTE ========
+        // =======================================================
 
-            // 2) Fallback a REDIRECT solo en errores esperables de popup
-            const POPUP_BLOCKERS = new Set([
-                "auth/popup-blocked",
-                "auth/popup-closed-by-user",
-                "auth/cancelled-popup-request",
-                "auth/operation-not-supported-in-this-environment",
-            ]);
-
-            if (FORCE_POPUP && !POPUP_BLOCKERS.has(e?.code)) {
-                // Si forzaste popup y el error no es de bloqueo, muéstralo tal cual
+        // Si es móvil, vamos directamente a la redirección. Es más robusto.
+        if (isMobileWeb && !FORCE_POPUP) {
+            try {
+                LG.info("→ Mobile device detected, using signInWithRedirect");
+                sessionStorage.setItem(REDIRECT_KEY, "1");
+                await signInWithRedirect(auth, provider);
+                // La página se redirigirá, el código de abajo no se ejecutará
+            } catch (e) {
+                LG.error("[redirect] error", e?.code, e?.message);
                 setError(`${e?.code || "auth/error"}: ${e?.message}`);
-            } else if (POPUP_BLOCKERS.has(e?.code)) {
-                if (isInAppBrowser) {
-                    setError(
-                        "El navegador dentro de la app (Instagram/Facebook/WhatsApp) bloquea el login. Ábrelo en Chrome o Safari."
-                    );
-                } else {
+                sessionStorage.removeItem(REDIRECT_KEY); // Limpiar en caso de error inmediato
+            }
+        } else {
+            // En escritorio, intentamos el popup primero, que es mejor UX.
+            try {
+                LG.info("→ Desktop device, trying signInWithPopup first");
+                const t = performance.now();
+                const cred = await signInWithPopup(auth, provider);
+                LG.info("popup OK", { uid: cred?.user?.uid, ms: Math.round(performance.now() - t) });
+            } catch (e) {
+                LG.error("[popup] error", e?.code, e?.message);
+
+                // Si el popup falla (bloqueado, cerrado), hacemos fallback a redirect
+                const POPUP_BLOCKERS = new Set([
+                    "auth/popup-blocked",
+                    "auth/popup-closed-by-user",
+                    "auth/cancelled-popup-request",
+                    "auth/operation-not-supported-in-this-environment",
+                ]);
+
+                if (POPUP_BLOCKERS.has(e?.code)) {
                     try {
-                        LG.info("→ fallback to signInWithRedirect");
+                        LG.info("→ popup failed, fallback to signInWithRedirect");
                         sessionStorage.setItem(REDIRECT_KEY, "1");
-                        await signInWithRedirect(auth, provider); // mismo tab
+                        await signInWithRedirect(auth, provider);
                     } catch (e2) {
                         LG.error("[redirect] error", e2?.code, e2?.message);
                         setError(`${e2?.code || "auth/error"}: ${e2?.message}`);
                     }
+                } else {
+                    // Otro tipo de error (red, configuración, etc.)
+                    setError(`${e?.code || "auth/error"}: ${e?.message}`);
                 }
-            } else {
-                // Error real distinto a bloqueo => mostrarlo
-                setError(`${e?.code || "auth/error"}: ${e?.message}`);
             }
-        } finally {
-            LG.end();
-            signingInRef.current = false;
-            setSigningIn(false);
         }
+
+        // El finally se ejecuta en todos los casos excepto si la redirección tuvo éxito
+        LG.end();
+        signingInRef.current = false;
+        setSigningIn(false);
     };
 
     const submitEmailPass = async (e) => {
