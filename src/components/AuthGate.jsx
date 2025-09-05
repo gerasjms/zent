@@ -1,4 +1,3 @@
-// src/components/AuthGate.jsx
 import React, { useEffect, useState, useRef } from "react";
 import {
     onAuthStateChanged,
@@ -14,7 +13,8 @@ import {
     sendEmailVerification,
 } from "firebase/auth";
 import { getApp } from "firebase/app";
-import { auth } from "../firebase";
+// Corregimos la ruta de importación para que sea relativa
+import { auth } from "../firebase.js";
 
 // ============ Logger con marca de sesión ============
 const SESSION_TAG = Math.random().toString(36).slice(2, 7).toUpperCase();
@@ -41,15 +41,13 @@ const isInAppBrowser = /(FBAN|FBAV|Instagram|Line|Twitter|Pinterest|LinkedInApp)
 
 // Flags útiles para pruebas locales (opcional)
 const qp = new URLSearchParams(location.search);
-const FORCE_POPUP =
-    qp.get("auth") === "popup" || (import.meta?.env?.VITE_FORCE_POPUP ?? "") === "1";
+const FORCE_POPUP = qp.get("auth") === "popup";
 
 // Clave para saber si salimos a redirect
 const REDIRECT_KEY = "auth_redirect_in_progress";
 
 export default function AuthGate({ children }) {
     const [loading, setLoading] = useState(true);
-    const [resolvingRedirect, setResolvingRedirect] = useState(false);
     const [user, setUser] = useState(null);
 
     // ---- Estados para Email/Pass ----
@@ -62,114 +60,49 @@ export default function AuthGate({ children }) {
     const [error, setError] = useState("");
     const [signingIn, setSigningIn] = useState(false);
     const signingInRef = useRef(false);
+    // Usamos una ref para asegurarnos que el resultado del redirect se procese una sola vez
+    const redirectResultProcessed = useRef(false);
 
-    const switchMode = (newMode) => {
-        setMode(newMode);
-        setError("");
-        setPass("");
-        setConfirm("");
-    };
-
-    // Logs globales / diagnóstico
+    // Listener de Auth + resolución de redirect (LÓGICA REESCRITA)
     useEffect(() => {
-        const onRejection = (e) => LG.error("[UNHANDLED REJECTION]", e?.reason || e);
-        const onError = (e) => LG.error("[WINDOW ERROR]", e?.message, e?.error || e);
-        window.addEventListener("unhandledrejection", onRejection);
-        window.addEventListener("error", onError);
-
-        try {
-            LG.info("[App Options]", getApp().options);
-            LG.info("[Origin]", window.location.origin);
-        } catch { }
-        LG.info("[UA]", navigator.userAgent);
-        LG.info("[Flags]", {
-            isMobileWeb,
-            chMobile,
-            uaMobileGuess,
-            FORCE_POPUP,
-            isInAppBrowser,
-            isSecureContext: window.isSecureContext,
-            cookieEnabled: navigator.cookieEnabled,
-            visibility: document.visibilityState,
-        });
-
-        if (isInAppBrowser) {
-            LG.warn("[Diag] In-App Browser detectado → abrir en Chrome/Safari externo.");
-            setError(
-                "Tu navegador integrado (Instagram/Facebook/WhatsApp) bloquea el inicio de sesión. Ábrelo en Chrome o Safari."
-            );
+        // Esta ref previene que la lógica se ejecute dos veces en StrictMode
+        if (redirectResultProcessed.current) {
+            return;
         }
+        redirectResultProcessed.current = true;
 
-        if (!navigator.cookieEnabled) {
-            LG.warn("[Diag] Cookies deshabilitadas; login puede fallar.");
-        }
+        let unsub = () => { };
 
-        if (navigator.storage?.estimate) {
-            navigator.storage.estimate().then((e) => {
-                LG.info("[Storage estimate]", {
-                    quotaMB: Math.round((e.quota || 0) / 1048576),
-                    usageMB: Math.round((e.usage || 0) / 1048576),
+        // Primero, intentamos obtener el resultado de una redirección.
+        getRedirectResult(auth)
+            .then(userCredential => {
+                sessionStorage.removeItem(REDIRECT_KEY);
+                if (userCredential) {
+                    LG.info("getRedirectResult SUCCESS", { uid: userCredential.user.uid });
+                } else {
+                    LG.info("No pending redirect result.");
+                }
+            })
+            .catch(error => {
+                LG.error("getRedirectResult FAILED", error);
+                setError(error.message);
+                sessionStorage.removeItem(REDIRECT_KEY);
+            })
+            .finally(() => {
+                // DESPUÉS de procesar el redirect (exitoso o no),
+                // establecemos el listener de estado como la fuente final de verdad.
+                unsub = onAuthStateChanged(auth, (user) => {
+                    LG.info("onAuthStateChanged FIRED", user ? { uid: user.uid } : null);
+                    setUser(user);
+                    setLoading(false); // Ahora sabemos el estado final y podemos dejar de cargar.
                 });
             });
-        }
 
         return () => {
-            window.removeEventListener("unhandledrejection", onRejection);
-            window.removeEventListener("error", onError);
+            unsub();
         };
     }, []);
 
-    // Listener de Auth + resolución de redirect
-    useEffect(() => {
-        let unsub = () => { };
-        (async () => {
-            LG.group("[BOOT]");
-
-            unsub = onAuthStateChanged(auth, (u) => {
-                LG.info("[onAuthStateChanged]", u ? { uid: u.uid, email: u.email } : null);
-                setUser(u || null);
-                if (!sessionStorage.getItem(REDIRECT_KEY)) setLoading(false);
-                if (u) sessionStorage.removeItem(REDIRECT_KEY);
-            });
-
-            const pending = sessionStorage.getItem(REDIRECT_KEY);
-            LG.info("[Redirect Pending?]", pending);
-
-            if (pending) {
-                setResolvingRedirect(true);
-                try {
-                    LG.info("[getRedirectResult] start");
-                    const res = await getRedirectResult(auth);
-                    if (res?.user) {
-                        LG.info("[getRedirectResult] OK", { uid: res.user.uid, email: res.user.email });
-                        setUser(res.user);
-                    } else {
-                        LG.warn("[getRedirectResult] sin resultado");
-                    }
-                } catch (e) {
-                    LG.error("[getRedirectResult] error", e?.code, e?.message);
-                    setError(`${e?.code || "auth/error"}: ${e?.message}`);
-                } finally {
-                    sessionStorage.removeItem(REDIRECT_KEY);
-                    setResolvingRedirect(false);
-                    setLoading(false);
-                    LG.info("[getRedirectResult] done");
-                    LG.end();
-                }
-            } else {
-                LG.end();
-            }
-        })();
-
-        return () => {
-            try {
-                unsub();
-            } catch { }
-        };
-    }, []);
-
-    // Login con Google: intenta POPUP primero, fallback a REDIRECT
-    // AuthGate.jsx
 
     const signInGoogle = async () => {
         if (signingInRef.current) {
@@ -186,33 +119,24 @@ export default function AuthGate({ children }) {
         const provider = new GoogleAuthProvider();
         provider.setCustomParameters({ prompt: "select_account" });
 
-        // =======================================================
-        // ======== AQUÍ ESTÁ EL CAMBIO IMPORTANTE ========
-        // =======================================================
-
-        // Si es móvil, vamos directamente a la redirección. Es más robusto.
         if (isMobileWeb && !FORCE_POPUP) {
             try {
                 LG.info("→ Mobile device detected, using signInWithRedirect");
                 sessionStorage.setItem(REDIRECT_KEY, "1");
                 await signInWithRedirect(auth, provider);
-                // La página se redirigirá, el código de abajo no se ejecutará
             } catch (e) {
                 LG.error("[redirect] error", e?.code, e?.message);
                 setError(`${e?.code || "auth/error"}: ${e?.message}`);
-                sessionStorage.removeItem(REDIRECT_KEY); // Limpiar en caso de error inmediato
+                sessionStorage.removeItem(REDIRECT_KEY);
+                signingInRef.current = false;
+                setSigningIn(false);
             }
         } else {
-            // En escritorio, intentamos el popup primero, que es mejor UX.
             try {
                 LG.info("→ Desktop device, trying signInWithPopup first");
-                const t = performance.now();
-                const cred = await signInWithPopup(auth, provider);
-                LG.info("popup OK", { uid: cred?.user?.uid, ms: Math.round(performance.now() - t) });
+                await signInWithPopup(auth, provider);
             } catch (e) {
                 LG.error("[popup] error", e?.code, e?.message);
-
-                // Si el popup falla (bloqueado, cerrado), hacemos fallback a redirect
                 const POPUP_BLOCKERS = new Set([
                     "auth/popup-blocked",
                     "auth/popup-closed-by-user",
@@ -230,72 +154,41 @@ export default function AuthGate({ children }) {
                         setError(`${e2?.code || "auth/error"}: ${e2?.message}`);
                     }
                 } else {
-                    // Otro tipo de error (red, configuración, etc.)
                     setError(`${e?.code || "auth/error"}: ${e?.message}`);
                 }
+            } finally {
+                signingInRef.current = false;
+                setSigningIn(false);
             }
         }
-
-        // El finally se ejecuta en todos los casos excepto si la redirección tuvo éxito
         LG.end();
-        signingInRef.current = false;
-        setSigningIn(false);
     };
 
     const submitEmailPass = async (e) => {
         e.preventDefault();
         setError("");
-        LG.group("[Email/Pass]");
-        LG.info("mode:", mode, "email:", email);
         try {
             if (mode === "signin") {
                 await signInWithEmailAndPassword(auth, email, pass);
             } else {
-                // --- Registro ---
-                if (pass.length < 6) {
-                    throw { code: "auth/weak-password", message: "La contraseña debe tener al menos 6 caracteres." };
-                }
-                if (pass !== confirm) {
-                    throw { code: "auth/password-mismatch", message: "Las contraseñas no coinciden." };
-                }
-                const { user } = await createUserWithEmailAndPassword(auth, email, pass);
-
-                // Guardar displayName opcional
-                if (displayName?.trim()) {
-                    await updateProfile(user, { displayName: displayName.trim() });
-                }
-
-                // Enviar verificación de correo (opcional)
-                try {
-                    await sendEmailVerification(user);
-                    LG.info("verification email sent");
-                } catch (ve) {
-                    LG.warn("verification email failed", ve?.code, ve?.message);
-                }
+                if (pass.length < 6) throw { code: "auth/weak-password", message: "La contraseña debe tener al menos 6 caracteres." };
+                if (pass !== confirm) throw { code: "auth/password-mismatch", message: "Las contraseñas no coinciden." };
+                const { user: newUser } = await createUserWithEmailAndPassword(auth, email, pass);
+                if (displayName?.trim()) await updateProfile(newUser, { displayName: displayName.trim() });
+                await sendEmailVerification(newUser);
             }
-            LG.info("email/pass OK");
         } catch (e2) {
-            LG.error("email/pass error", e2?.code, e2?.message);
             setError(`${e2?.code || "auth/error"}: ${e2?.message}`);
-        } finally {
-            LG.end();
         }
     };
 
     const doLogout = async () => {
-        setError("");
-        try {
-            await signOut(auth);
-            LG.info("[Logout] OK");
-        } catch (e) {
-            LG.error("[Logout] error", e?.code, e?.message);
-            setError(`${e?.code || "auth/error"}: ${e?.message}`);
-        }
+        await signOut(auth);
     };
 
-    if (loading || resolvingRedirect) {
+    if (loading) {
         return (
-            <div className="min-h-screen grid place-items-center">
+            <div className="min-h-screen grid place-items-center bg-surface-50">
                 <div className="text-slate-500 text-sm">Cargando sesión…</div>
             </div>
         );
@@ -309,9 +202,6 @@ export default function AuthGate({ children }) {
                         <h1 className="text-lg font-semibold text-slate-900 text-center">
                             {mode === "signin" ? "Accede a tu cuenta" : "Crea tu cuenta"}
                         </h1>
-                        <p className="helper text-center mt-1">
-                            Tus datos se guardarán en Firestore bajo tu usuario.
-                        </p>
 
                         {error && (
                             <div className="mt-4 text-xs rounded-lg border border-red-200 bg-red-50 text-red-700 p-3">
@@ -319,7 +209,6 @@ export default function AuthGate({ children }) {
                             </div>
                         )}
 
-                        {/* Google */}
                         <button
                             onClick={signInGoogle}
                             className="btn btn-ghost w-full mt-5"
@@ -327,10 +216,7 @@ export default function AuthGate({ children }) {
                         >
                             <span className="inline-flex items-center gap-2">
                                 <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden className="opacity-80">
-                                    <path
-                                        fill="#EA4335"
-                                        d="M12 10.2v3.6h5.1c-.22 1.2-1.54 3.5-5.1 3.5a5.9 5.9 0 1 1 0-11.8c1.7 0 2.9.7 3.6 1.3l2.4-2.3C16.8 3 14.6 2.2 12 2.2 6.9 2.2 2.8 6.3 2.8 11.4S6.9 20.6 12 20.6c6.9 0 9.2-4.8 8.6-9.2H12z"
-                                    />
+                                    <path fill="#EA4335" d="M12 10.2v3.6h5.1c-.22 1.2-1.54 3.5-5.1 3.5a5.9 5.9 0 1 1 0-11.8c1.7 0 2.9.7 3.6 1.3l2.4-2.3C16.8 3 14.6 2.2 12 2.2 6.9 2.2 2.8 6.3 2.8 11.4S6.9 20.6 12 20.6c6.9 0 9.2-4.8 8.6-9.2H12z" />
                                 </svg>
                                 {mode === "signin" ? "Continuar con Google" : "Registrarte con Google"}
                             </span>
@@ -342,125 +228,45 @@ export default function AuthGate({ children }) {
                             <div className="h-px bg-surface-200 flex-1" />
                         </div>
 
-                        {/* Email / Password */}
                         <form onSubmit={submitEmailPass} className="space-y-3">
                             {mode === "signup" && (
                                 <div>
                                     <label className="label">Nombre (opcional)</label>
-                                    <input
-                                        type="text"
-                                        value={displayName}
-                                        onChange={(e) => setDisplayName(e.target.value)}
-                                        className="input"
-                                        placeholder="Tu nombre"
-                                        autoComplete="name"
-                                    />
+                                    <input type="text" value={displayName} onChange={(e) => setDisplayName(e.target.value)} className="input" placeholder="Tu nombre" autoComplete="name" />
                                 </div>
                             )}
-
                             <div>
                                 <label className="label">Email</label>
-                                <input
-                                    type="email"
-                                    required
-                                    value={email}
-                                    onChange={(e) => setEmail(e.target.value)}
-                                    className="input"
-                                    placeholder="tucorreo@ejemplo.com"
-                                    autoComplete="email"
-                                />
+                                <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="input" placeholder="tucorreo@ejemplo.com" autoComplete="email" />
                             </div>
-
                             <div>
                                 <label className="label">Contraseña</label>
-                                <input
-                                    type="password"
-                                    required
-                                    value={pass}
-                                    onChange={(e) => setPass(e.target.value)}
-                                    className="input"
-                                    placeholder="••••••••"
-                                    autoComplete={mode === "signin" ? "current-password" : "new-password"}
-                                />
+                                <input type="password" required value={pass} onChange={(e) => setPass(e.target.value)} className="input" placeholder="••••••••" autoComplete={mode === "signin" ? "current-password" : "new-password"} />
                             </div>
-
                             {mode === "signup" && (
                                 <div>
                                     <label className="label">Confirmar contraseña</label>
-                                    <input
-                                        type="password"
-                                        required
-                                        value={confirm}
-                                        onChange={(e) => setConfirm(e.target.value)}
-                                        className="input"
-                                        placeholder="••••••••"
-                                        autoComplete="new-password"
-                                    />
+                                    <input type="password" required value={confirm} onChange={(e) => setConfirm(e.target.value)} className="input" placeholder="••••••••" autoComplete="new-password" />
                                 </div>
                             )}
-
-                            <button
-                                type="submit"
-                                className="btn btn-primary w-full"
-                                disabled={mode === "signup" && (!pass || pass !== confirm)}
-                            >
+                            <button type="submit" className="btn btn-primary w-full" disabled={mode === "signup" && (!pass || pass !== confirm)}>
                                 {mode === "signin" ? "Iniciar sesión" : "Crear cuenta"}
                             </button>
                         </form>
 
-                        {/* Footers: toggles y reset password */}
                         <div className="mt-4 text-center text-[12px] text-slate-500">
                             {mode === "signin" ? (
                                 <>
                                     ¿No tienes cuenta?{" "}
-                                    <button
-                                        type="button"
-                                        onClick={() => switchMode("signup")}
-                                        className="underline"
-                                    >
-                                        Crea una
-                                    </button>
+                                    <button type="button" onClick={() => setMode("signup")} className="underline">Crea una</button>
                                 </>
                             ) : (
                                 <>
                                     ¿Ya tienes cuenta?{" "}
-                                    <button
-                                        type="button"
-                                        onClick={() => switchMode("signin")}
-                                        className="underline"
-                                    >
-                                        Inicia sesión
-                                    </button>
+                                    <button type="button" onClick={() => setMode("signin")} className="underline">Inicia sesión</button>
                                 </>
                             )}
                         </div>
-
-                        {mode === "signin" && (
-                            <div className="mt-2 text-center">
-                                <button
-                                    type="button"
-                                    className="text-[12px] underline text-slate-500"
-                                    onClick={async () => {
-                                        setError("");
-                                        try {
-                                            if (!email) throw new Error("Ingresa tu email arriba para enviarte el enlace.");
-                                            await sendPasswordResetEmail(auth, email);
-                                            LG.info("[PasswordReset] email sent");
-                                            alert("Te enviamos un enlace para restablecer tu contraseña.");
-                                        } catch (err) {
-                                            LG.error("[PasswordReset] error", err);
-                                            setError(`password-reset: ${err.message || err}`);
-                                        }
-                                    }}
-                                >
-                                    ¿Olvidaste tu contraseña?
-                                </button>
-                            </div>
-                        )}
-
-                        <button onClick={doLogout} className="hidden mt-4 text-[11px] text-slate-400 underline">
-                            Forzar logout
-                        </button>
                     </div>
                 </div>
             </div>
@@ -469,3 +275,4 @@ export default function AuthGate({ children }) {
 
     return <>{children}</>;
 }
+
