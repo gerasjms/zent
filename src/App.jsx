@@ -10,6 +10,9 @@ import FinanceChart from "./components/FinanceChart.jsx";
 import Strategy503020 from "./components/Strategy503020.jsx";
 import HistoryTable from "./components/HistoryTable.jsx";
 import DeleteConfirmationModal from "./components/DeleteConfirmationModal.jsx";
+import LogoBBVA from "./assets/logos/BBVA.svg";
+import LogoDolarApp from "./assets/logos/DolarApp.svg";
+import LogoMercadoPago from "./assets/logos/mercadoPago.svg";
 
 import { db, auth } from "./firebase";
 import { onAuthStateChanged } from "firebase/auth";
@@ -112,14 +115,15 @@ export default function App() {
     const transfersRef = collection(db, "artifacts", APP_ID, "users", userId, "transfers");
 
     const u1 = onSnapshot(incomesRef, (snap) =>
-      setIncomes(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+      setIncomes(snap.docs.map((d) => ({ ...d.data(), id: d.id }))) // 👈 id al final
     );
     const u2 = onSnapshot(expensesRef, (snap) =>
-      setExpenses(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+      setExpenses(snap.docs.map((d) => ({ ...d.data(), id: d.id }))) // 👈
     );
     const u3 = onSnapshot(transfersRef, (snap) =>
-      setTransfers(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+      setTransfers(snap.docs.map((d) => ({ ...d.data(), id: d.id }))) // 👈
     );
+
 
     return () => {
       u1();
@@ -497,11 +501,27 @@ export default function App() {
               rateUsed: parseNum(row.rateUsed),
               isSalary: row.isSalary === "true",
             };
-            await addDoc(
-              collection(db, "artifacts", APP_ID, "users", userId, "incomes"),
-              newIncome
-            );
+            delete newIncome.id; // 👈 evita ensuciar los datos con un id viejo
+            await addDoc(collection(db, "artifacts", APP_ID, "users", userId, "incomes"), newIncome);
           } else if (row.type === "expense") {
+            const newExpense = {
+              ...row,
+              amount: parseNum(row.amount),
+              convertedAmount: parseNum(row.convertedAmount),
+            };
+            delete newExpense.id; // 👈
+            await addDoc(collection(db, "artifacts", APP_ID, "users", userId, "expenses"), newExpense);
+          } else if (row.type === "transfer") {
+            const newTransfer = {
+              ...row,
+              amountSent: parseNum(row.amountSent),
+              amountReceived: parseNum(row.amountReceived),
+              spread: parseNum(row.spread),
+            };
+            delete newTransfer.id; // 👈
+            await addDoc(collection(db, "artifacts", APP_ID, "users", userId, "transfers"), newTransfer);
+          }
+          else if (row.type === "expense") {
             const newExpense = {
               ...row,
               amount: parseNum(row.amount),
@@ -535,8 +555,9 @@ export default function App() {
   };
 
   // Render
+  // Render
   return (
-    <div className="bg-gray-100 text-gray-800 min-h-screen font-sans p-4 lg:p-8">
+    <div className="bg-gray-100 text-gray-800 min-h-screen font-sans">
       <Notification
         message={notification.message}
         type={notification.type}
@@ -548,52 +569,62 @@ export default function App() {
         onCancel={() => setItemToDelete(null)}
       />
 
-      <div className="w-full lg:w-4/5 mx-auto">
-        <Header />
-        <main className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          <aside className="lg:col-span-1 bg-white p-6 rounded-2xl shadow-lg flex flex-col self-start">
-            <IncomeForm
-              ACCOUNTS={ACCOUNTS}
-              onAddIncome={handleAddIncome}
-              onNotify={showNotification}
-            />
-            <ExpenseForm
-              ACCOUNTS={ACCOUNTS}
-              CATEGORIES={CATEGORIES}
-              onAddExpense={handleAddExpense}
-              onNotify={showNotification}
-            />
-            <AccountBalances
-              ACCOUNTS={ACCOUNTS}
-              balances={balances}
-              totalBalance={totalBalance}
-            />
-          </aside>
+      {/* 🔹 La barra arriba, fuera del contenedor centrado */}
+      <Header />
 
-          <section className="lg:col-span-2 flex flex-col gap-8">
-            <FinanceChart
-              data={chartConfig.data}
-              options={chartConfig.options}
-              chartView={chartView}
-              setChartView={setChartView}
-              totalSalaryIncome={totalSalaryIncome}
-              totalGlobalIncome={totalGlobalIncome}
-            />
-            <TransferForm
-              ACCOUNTS={ACCOUNTS}
-              onAddTransfer={handleAddTransfer}
-              onNotify={showNotification}
-            />
-            <Strategy503020 data={strategyData} />
-            <HistoryTable
-              ACCOUNTS={ACCOUNTS}
-              movements={allMovements}
-              onDeleteClick={(id, type) => setItemToDelete({ id, type })}
-              onCsvExport={handleCsvExport}
-              onCsvImport={handleCsvImport}
-            />
-          </section>
-        </main>
+      {/* 🔹 Le damos padding-top para no quedar debajo del header sticky (h-14 ≈ 56px) */}
+      <div className="pt-16 p-4 lg:p-8">
+        <div className="w-full lg:w-4/5 mx-auto">
+          <main className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <aside className="lg:col-span-1 bg-white p-6 rounded-2xl shadow-lg flex flex-col self-start">
+              <IncomeForm
+                ACCOUNTS={ACCOUNTS}
+                onAddIncome={handleAddIncome}
+                onNotify={showNotification}
+              />
+              <ExpenseForm
+                ACCOUNTS={ACCOUNTS}
+                CATEGORIES={CATEGORIES}
+                onAddExpense={handleAddExpense}
+                onNotify={showNotification}
+              />
+              <AccountBalances
+                ACCOUNTS={ACCOUNTS}
+                balances={balances}
+                totalBalance={totalBalance}
+              />
+            </aside>
+
+            <section className="lg:col-span-2 flex flex-col gap-8">
+              <FinanceChart
+                data={chartConfig.data}
+                options={chartConfig.options}
+                chartView={chartView}
+                setChartView={setChartView}
+                totalSalaryIncome={totalSalaryIncome}
+                totalGlobalIncome={totalGlobalIncome}
+              />
+              <TransferForm
+                ACCOUNTS={ACCOUNTS}
+                onAddTransfer={handleAddTransfer}
+                onNotify={showNotification}
+              />
+              <Strategy503020 data={strategyData} />
+            </section>
+
+            {/* Fila completa para el historial */}
+            <div className="lg:col-span-3"> {/* o "col-span-full" si tu Tailwind lo tiene */}
+              <HistoryTable
+                ACCOUNTS={ACCOUNTS}
+                movements={allMovements}
+                onDeleteClick={(id, type) => setItemToDelete({ id, type })}
+                onCsvExport={handleCsvExport}
+                onCsvImport={handleCsvImport}
+              />
+            </div>
+
+          </main>
+        </div>
       </div>
     </div>
   );
