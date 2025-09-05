@@ -1,0 +1,117 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Base: tipografía + tamaños */
+@layer base {
+  html {
+    font-size: 14px;
+  }
+
+  /* un pelín más pequeño que el default */
+  body {
+    @apply bg-surface-50 text-slate-800 font-inter antialiased;
+  }
+}
+
+/* Componentes utilitarios coherentes */
+@layer components {
+
+  /* Cards */
+  .card {
+    @apply bg-surface-0 rounded-2xl shadow-elev-1 border border-slate-100;
+  }
+
+  .card-body {
+    @apply p-6;
+  }
+
+  /* Secciones / títulos */
+  .section-title {
+    @apply text-[1.25rem] font-semibold text-slate-900;
+  }
+
+  .section-subtle {
+    @apply text-sm text-slate-500;
+  }
+
+  /* Botones */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-medium transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-offset-2;
+  }
+
+  .btn-primary {
+    @apply bg-primary-600 text-white hover:bg-primary-700 focus:ring-primary-400;
+  }
+
+  .btn-neutral {
+    @apply bg-surface-0 text-slate-700 border border-slate-200 hover:bg-surface-100 focus:ring-slate-300;
+  }
+
+  .btn-outline {
+    @apply border border-slate-300 text-slate-700 hover:bg-surface-100 focus:ring-slate-300;
+  }
+
+  .btn-danger {
+    @apply bg-danger text-white hover:bg-red-600 focus:ring-red-400;
+  }
+
+  .btn-xs {
+    @apply text-xs px-3 py-1.5;
+  }
+
+  .btn-lg {
+    @apply text-base px-5 py-2.5;
+  }
+
+  /* Toggle pills (para MXN/USD, Strategy/Global tabs) */
+  .pill {
+    @apply px-3 py-1.5 text-sm rounded-xl border border-slate-200 bg-surface-0 hover:bg-surface-100;
+  }
+
+  .pill-active {
+    @apply bg-primary-600 text-white border-transparent hover:bg-primary-700;
+  }
+
+  /* Inputs / selects coherentes (plugin forms + retoques) */
+  .input {
+    @apply w-full rounded-xl border-slate-300 focus:border-primary-500 focus:ring-primary-500;
+  }
+
+  .select {
+    @apply input;
+  }
+
+  .checkbox {
+    @apply rounded text-primary-600 focus:ring-primary-500;
+  }
+}
+
+/* Scrollbar (opcional) */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 8px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: #f3f4f6;
+  border-radius: 10px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #a8b0bb;
+  border-radius: 10px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #8b94a1;
+}
+
+@layer components {
+  .card {
+    @apply bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden;
+  }
+
+  .card-padding {
+    @apply p-6 sm:p-8;
+  }
+}
