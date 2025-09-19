@@ -1,3 +1,4 @@
+//src/components/AuthGate.jsx
 import React, { useEffect, useState, useRef } from "react";
 import {
     onAuthStateChanged,

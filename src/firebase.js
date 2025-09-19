@@ -1,4 +1,4 @@
-// Import the functions you need from the SDKs you need
+// src/firebase.js
 import { initializeApp, getApps, getApp } from "firebase/app";
 import {
     initializeAuth,
@@ -6,46 +6,42 @@ import {
     browserLocalPersistence,
     browserSessionPersistence,
     browserPopupRedirectResolver,
-    getAuth, // fallback si Auth ya fue inicializado en caliente (HMR)
+    getAuth,
     GoogleAuthProvider,
 } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
-// TODO: Add SDKs for Firebase products that you want to use
-// https://firebase.google.com/docs/web/setup#available-libraries
 
-// Your web app's Firebase configuration
-// For Firebase JS SDK v7.20.0 and later, measurementId is optional
-const firebaseConfig = {
-    apiKey: "AIzaSyBzca0Xc72nVmeRnNDgmMNdQ6riMI9sqns",
-    authDomain: "zent-9e08f.firebaseapp.com",
-    projectId: "zent-9e08f",
-    storageBucket: "zent-9e08f.appspot.com",
-    messagingSenderId: "914474229659",
-    appId: "1:914474229659:web:e66f0d2778da6433d28b3e",
-    measurementId: "G-Y6DH5TFQYY"
+const cfg = {
+    apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+    authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+    projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+    storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+    messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+    appId: import.meta.env.VITE_FIREBASE_APP_ID,
+    measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID,
 };
 
-const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
+// Aviso útil en dev si falta algo
+if (import.meta.env.DEV) {
+    for (const [k, v] of Object.entries(cfg)) {
+        if (!v) console.warn(`[firebase] Falta variable de entorno: ${k}`);
+    }
+}
 
-// Inicializa Auth con persistencias robustas y resolver de popup/redirect
+const app = getApps().length ? getApp() : initializeApp(cfg);
+
+// Auth con persistencias
 let auth;
 try {
     auth = initializeAuth(app, {
-        persistence: [
-            indexedDBLocalPersistence,     // la más confiable en móvil
-            browserLocalPersistence,
-            browserSessionPersistence,
-        ],
+        persistence: [indexedDBLocalPersistence, browserLocalPersistence, browserSessionPersistence],
         popupRedirectResolver: browserPopupRedirectResolver,
     });
 } catch {
-    // Si ya estaba inicializado (HMR en dev), sólo recupéralo
     auth = getAuth(app);
 }
 
 const db = getFirestore(app);
-
-// (Opcional) si en algún sitio importas este provider:
 const googleProvider = new GoogleAuthProvider();
 
 export { app, db, auth, googleProvider };
