@@ -20,7 +20,7 @@ export default function Strategy503020({
     onChangeStrategy,
     accountsMap,
     usdToMxn = 17.0,
-    displayCurrency = "MXN",   // <-- NUEVO
+    displayCurrency = "MXN",
 }) {
     const safeStrategy = {
         needs: { pct: Number(strategy?.needs?.pct ?? 50), account: strategy?.needs?.account ?? Object.keys(accountsMap || {})[0] },
@@ -135,21 +135,29 @@ export default function Strategy503020({
                     const account = safeStrategy[key].account;
                     const info = data?.[key] || { ideal: 0, actual: 0, remaining: 0 };
 
-                    // Convertimos SIEMPRE desde MXN a la moneda global seleccionada
+                    // Convertir SIEMPRE desde MXN a la moneda de display global
                     const idealConv = convertDisplay(info.ideal, displayCurrency, usdToMxn);
                     const actualConv = convertDisplay(info.actual, displayCurrency, usdToMxn);
                     const remainingConv = convertDisplay(info.remaining, displayCurrency, usdToMxn);
 
                     return (
-                        <div key={key} className={`relative rounded-xl p-4 sm:p-5 min-h-[188px] border ${accent.card}`}>
-                            <img src={logo} alt="" className="absolute right-3 top-3 h-6 opacity-80" />
-
+                        <div
+                            key={key}
+                            className={`rounded-xl p-4 sm:p-5 min-h-[188px] border ${accent.card}`}
+                        >
+                            {/* Header: título + logo (izq) | porcentaje (der) */}
                             <div className="flex items-center justify-between gap-3 mb-2">
-                                <h3 className={`text-base sm:text-lg font-semibold ${accent.title}`}>
-                                    {title}
-                                </h3>
+                                <div className="flex items-center gap-2">
+                                    <h3 className={`text-base sm:text-lg font-semibold ${accent.title}`}>{title}</h3>
+                                    {/* Logo pequeño junto al título */}
+                                    <img
+                                        src={logo}
+                                        alt=""
+                                        className="h-5 sm:h-6 opacity-70 shrink-0 pointer-events-none"
+                                        aria-hidden="true"
+                                    />
+                                </div>
 
-                                {/* % input */}
                                 <div className="flex items-center gap-2">
                                     <input
                                         type="number"
@@ -157,14 +165,14 @@ export default function Strategy503020({
                                         max={100}
                                         value={pct}
                                         onChange={(e) => handlePctChange(key, e.target.value)}
-                                        className="w-16 text-sm px-2 py-1 border rounded-lg"
+                                        className="w-14 sm:w-16 text-sm px-2 py-1 border rounded-lg text-right"
                                         aria-label={`Porcentaje ${title}`}
                                     />
                                     <span className="text-xs text-gray-500">%</span>
                                 </div>
                             </div>
 
-                            {/* Cuenta select (sólo define destino; la moneda de display es global) */}
+                            {/* Cuenta destino */}
                             <label className="block text-xs text-gray-500 mb-1">Cuenta destino</label>
                             <select
                                 value={account}

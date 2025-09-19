@@ -10,7 +10,7 @@ import FinanceChart from "./components/FinanceChart.jsx";
 import Strategy503020 from "./components/Strategy503020.jsx";
 import HistoryTable from "./components/HistoryTable.jsx";
 import DeleteConfirmationModal from "./components/DeleteConfirmationModal.jsx";
-// import AddAccountForm from "./components/AddAccountForm.jsx";
+import AddAccountForm from "./components/AddAccountForm.jsx";
 
 import { db, auth } from "./firebase";
 import { onAuthStateChanged } from "firebase/auth";
@@ -156,6 +156,38 @@ export default function App() {
       }
     })();
   }, []);
+
+  const handleCreateAccount = async ({ name, currency }) => {
+    if (!isFirebaseReady || !userId) {
+      showNotification("La base de datos no está lista.", "error");
+      return;
+    }
+
+    const currencySafe = (currency || "MXN").toUpperCase();
+    const slug = makeSlug(name, accountsMap);
+    if (!slug) {
+      showNotification("Nombre de cuenta inválido.", "error");
+      return;
+    }
+
+    // Evita duplicados por nombre/slug
+    if (accountsMap[slug]) {
+      showNotification("Ya existe una cuenta con ese nombre.", "error");
+      return;
+    }
+
+    try {
+      await addDoc(
+        collection(db, "artifacts", APP_ID, "users", userId, "accounts"),
+        { slug, name: name.trim(), currency: currencySafe }
+      );
+      showNotification("Cuenta creada.");
+    } catch (e) {
+      console.error("create account", e);
+      showNotification("No se pudo crear la cuenta.", "error");
+    }
+  };
+
 
   // cuentas dinámicas (slug -> { name, currency }) e ids (slug -> docId)
   const [accountsMap, setAccountsMap] = useState(ACCOUNTS);
@@ -613,8 +645,33 @@ export default function App() {
         ? (Number(mxn) || 0) / (Number(usdToMxn) || 17)
         : (Number(mxn) || 0);
 
-    const totalIncome = chartView === "strategy" ? totalSalaryIncome : totalGlobalIncome;
-    const expensesToChart = srcExpenses; // mismo dataset
+    // Cuentas elegidas en estrategia (normalizadas a slug)
+    const needsAcc = toSlug(strategy?.needs?.account) || strategy?.needs?.account || null;
+    const wantsAcc = toSlug(strategy?.wants?.account) || strategy?.wants?.account || null;
+    const futureAcc = toSlug(strategy?.future?.account) || strategy?.future?.account || null;
+    const strategyAccs = new Set([needsAcc, wantsAcc, futureAcc].filter(Boolean));
+
+    // TOTALES PARA EL HEADER (mostrados en FinanceChart):
+    // - strategyIncome: sólo ingresos de salario en las 3 cuentas de estrategia
+    // - globalIncome: todos los ingresos (como antes)
+    const strategyIncome = srcIncomes
+      .filter(i => (i.isSalary === true || i.isSalary === "true") && strategyAccs.has(toSlug(i.account) || i.account))
+      .reduce((s, i) => s + incomeToMx(i, usdToMxn), 0);
+
+    const globalIncome = srcIncomes.reduce((s, i) => s + incomeToMx(i, usdToMxn), 0);
+
+    // Selección de dataset para el pie:
+    const isStrategy = chartView === "strategy";
+
+    // Ingresos base del gráfico (MXN)
+    const totalIncome = isStrategy ? strategyIncome : globalIncome;
+
+    // Egresos a graficar:
+    // - strategy: sólo egresos cuya cuenta esté en las 3 cuentas seleccionadas
+    // - global: todos los egresos
+    const expensesToChart = isStrategy
+      ? srcExpenses.filter(e => strategyAccs.has(toSlug(e.account) || e.account))
+      : srcExpenses;
 
     if (!Number.isFinite(totalIncome) || totalIncome <= 0) {
       return {
@@ -623,25 +680,27 @@ export default function App() {
           datasets: [{ data: [1], backgroundColor: ["#e5e7eb"], borderColor: "#fff", borderWidth: 2 }],
         },
         options: { plugins: { legend: { display: false } }, responsive: true, maintainAspectRatio: false },
+        totals: { strategyIncome, globalIncome },
       };
     }
 
-    // *** Convertir cada egreso a MXN pasando usdToMxn ***
-    const grouped = expensesToChart.reduce((acc, exp) => {
+    // Agrupar egresos por grupo (siempre convertir a MXN)
+    const groupedMx = expensesToChart.reduce((acc, exp) => {
       const g = exp.group || "Otros";
-      const v = expenseToMx(exp, usdToMxn); // <-- FIX
+      const v = expenseToMx(exp, usdToMxn);
       acc[g] = (acc[g] || 0) + v;
       return acc;
     }, {});
+    const sumGroupMx = Object.values(groupedMx).reduce((s, v) => s + v, 0);
+    const remainingMx = Math.max(0, totalIncome - sumGroupMx);
 
     const groupedDisp = Object.fromEntries(
-      Object.entries(grouped).map(([k, v]) => [k, disp(v)])
+      Object.entries(groupedMx).map(([k, v]) => [k, disp(v)])
     );
+    const remainingDisp = disp(remainingMx);
 
-    const labels = [chartView === "strategy" ? "Salario Restante" : "Ingreso Restante", ...Object.keys(groupedDisp)];
-    const sumGroup = Object.values(grouped).reduce((s, v) => s + v, 0);
-    const remaining = Math.max(0, totalIncome - sumGroup);
-    const dataVals = [disp(remaining), ...Object.values(groupedDisp)];
+    const labels = [isStrategy ? "Salario Restante" : "Ingreso Restante", ...Object.keys(groupedDisp)];
+    const dataVals = [remainingDisp, ...Object.values(groupedDisp)];
 
     const colorMap = {
       "Salario Restante": "#4ade80",
@@ -663,7 +722,6 @@ export default function App() {
         maintainAspectRatio: false,
         plugins: {
           legend: { position: "bottom" },
-          // *** FIX: tooltip anidado incorrecto ***
           tooltip: {
             callbacks: {
               label: (c) =>
@@ -675,8 +733,31 @@ export default function App() {
           },
         },
       },
+      totals: { strategyIncome, globalIncome },
     };
-  }, [chartView, totalSalaryIncome, totalGlobalIncome, srcExpenses, usdToMxn, displayCurrency]);
+  }, [chartView, srcIncomes, srcExpenses, strategy, usdToMxn, displayCurrency, toSlug]);
+
+  // genera un slug simple tipo "mercadoPago" o "bbva"
+  const makeSlug = (name, existing = {}) => {
+    const clean = String(name || "")
+      .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // quita acentos
+      .replace(/[^a-zA-Z0-9\s]/g, " ")                  // quita símbolos
+      .trim()
+      .split(/\s+/);
+
+    if (clean.length === 0) return null;
+    const camel = clean
+      .map((w, i) => i === 0 ? w.toLowerCase() : (w[0].toUpperCase() + w.slice(1).toLowerCase()))
+      .join("");
+
+    let slug = camel || null;
+    // evita colisiones si ya existe
+    let k = 2;
+    while (slug && (existing[slug] || Object.prototype.hasOwnProperty.call(existing, slug))) {
+      slug = `${camel}${k++}`;
+    }
+    return slug;
+  };
 
 
   // Movimientos combinados (filtrados)
@@ -906,7 +987,7 @@ export default function App() {
 
               <ExpenseForm ACCOUNTS={accountsMap} CATEGORIES={CATEGORIES} onAddExpense={handleAddExpense} onNotify={showNotification} />
 
-              {/* <AddAccountForm ... /> */}
+              <AddAccountForm onCreate={handleCreateAccount} />
 
               <AccountBalances
                 accountsMap={accountsMap}
@@ -921,6 +1002,7 @@ export default function App() {
                     .catch(() => showNotification("No se pudo eliminar la cuenta.", "error"));
                 }}
               />
+
             </aside>
 
             <section className="lg:col-span-2 flex flex-col gap-8">
@@ -929,9 +1011,10 @@ export default function App() {
                 options={chartConfig.options}
                 chartView={chartView}
                 setChartView={setChartView}
-                totalSalaryIncome={totalSalaryIncome}
-                totalGlobalIncome={totalGlobalIncome}
+                totalSalaryIncome={chartConfig.totals.strategyIncome} // 👈 ahora usa el filtrado por cuentas
+                totalGlobalIncome={chartConfig.totals.globalIncome}   // 👈 total global como antes
               />
+
               <TransferForm ACCOUNTS={accountsMap} onAddTransfer={handleAddTransfer} onNotify={showNotification} />
               <Strategy503020
                 data={strategyData}           // en MXN
