@@ -1,19 +1,25 @@
-// src/components/ExpenseForm.jsx
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 export default function ExpenseForm({ ACCOUNTS, CATEGORIES, onAddExpense, onNotify }) {
+    const accountKeys = useMemo(() => Object.keys(ACCOUNTS || {}), [ACCOUNTS]);
+
     const [amount, setAmount] = useState("");
     const [currency, setCurrency] = useState("MXN");
     const [category, setCategory] = useState("Supermercado");
-    const [account, setAccount] = useState("mercadoPago");
+    const [account, setAccount] = useState("");
 
-    // Si cambia la moneda, ajusta la cuenta para que coincida con la misma divisa
+    // siempre selecciona una cuenta válida para la moneda actual
     useEffect(() => {
-        if (ACCOUNTS[account]?.currency !== currency) {
-            const first = Object.keys(ACCOUNTS).find(k => ACCOUNTS[k].currency === currency);
-            if (first) setAccount(first);
+        if (!accountKeys.length) {
+            setAccount("");
+            return;
         }
-    }, [currency, account, ACCOUNTS]);
+        const current = ACCOUNTS[account];
+        if (!current || current.currency !== currency) {
+            const sameCurrency = accountKeys.find(k => ACCOUNTS[k].currency === currency);
+            setAccount(sameCurrency || accountKeys[0]);
+        }
+    }, [currency, accountKeys.join(","), ACCOUNTS, account]);
 
     const submit = async (e) => {
         e.preventDefault();
@@ -22,15 +28,12 @@ export default function ExpenseForm({ ACCOUNTS, CATEGORIES, onAddExpense, onNoti
             onNotify("Por favor, completa todos los campos válidamente.", "error");
             return;
         }
-        await onAddExpense({ amount: numericAmount, currency, category, account });
+        await onAddExpense({ amount: numericAmount, currency, category, account }); // 👈 guarda en la cuenta elegida
         setAmount("");
     };
 
-    const filteredAccounts = Object.keys(ACCOUNTS).filter(k => ACCOUNTS[k].currency === currency);
-
-    // ——— estilos para el toggle de moneda (segmentado) ———
-    const segBtn = (isActive) =>
-        `btn btn-sm flex-1 ${isActive ? "btn-primary" : "btn-ghost"}`;
+    const filteredAccounts = accountKeys.filter(k => ACCOUNTS[k].currency === currency);
+    const hasAccounts = filteredAccounts.length > 0;
 
     return (
         <section className="mt-8">
@@ -55,21 +58,13 @@ export default function ExpenseForm({ ACCOUNTS, CATEGORIES, onAddExpense, onNoti
                 {/* Moneda */}
                 <div>
                     <label className="label">Moneda</label>
-                    <div className="bg-slate-100 p-1 rounded-lg flex gap-1">
-                        <button
-                            type="button"
-                            onClick={() => setCurrency("MXN")}
-                            className={segBtn(currency === "MXN")}
-                            aria-pressed={currency === "MXN"}
-                        >
+                    <div className="w-full bg-slate-100 p-1 rounded-xl border border-slate-200 flex" role="group" aria-label="Seleccionar moneda">
+                        <button type="button" onClick={() => setCurrency("MXN")}
+                            className={`flex-1 px-3 py-2 text-sm font-medium transition rounded-l-xl ${currency === "MXN" ? "bg-blue-600 text-white shadow-sm" : "bg-transparent text-slate-700 hover:bg-white"}`}>
                             MXN
                         </button>
-                        <button
-                            type="button"
-                            onClick={() => setCurrency("USD")}
-                            className={segBtn(currency === "USD")}
-                            aria-pressed={currency === "USD"}
-                        >
+                        <button type="button" onClick={() => setCurrency("USD")}
+                            className={`flex-1 px-3 py-2 text-sm font-medium transition rounded-r-xl ${currency === "USD" ? "bg-blue-600 text-white shadow-sm" : "bg-transparent text-slate-700 hover:bg-white"}`}>
                             USD
                         </button>
                     </div>
@@ -103,6 +98,7 @@ export default function ExpenseForm({ ACCOUNTS, CATEGORIES, onAddExpense, onNoti
                         value={account}
                         onChange={(e) => setAccount(e.target.value)}
                         className="select"
+                        disabled={!hasAccounts}
                     >
                         {filteredAccounts.map((k) => (
                             <option key={k} value={k}>
@@ -110,10 +106,13 @@ export default function ExpenseForm({ ACCOUNTS, CATEGORIES, onAddExpense, onNoti
                             </option>
                         ))}
                     </select>
+                    {!hasAccounts && (
+                        <p className="text-xs text-slate-500 mt-1">No hay cuentas en {currency}. Crea una debajo.</p>
+                    )}
                 </div>
 
                 {/* Submit */}
-                <button type="submit" className="btn btn-primary w-full">
+                <button type="submit" className="btn btn-primary w-full" disabled={!hasAccounts}>
                     Agregar egreso
                 </button>
             </form>

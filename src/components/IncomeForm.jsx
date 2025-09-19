@@ -1,12 +1,30 @@
-// src/components/IncomeForm.jsx
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 export default function IncomeForm({ ACCOUNTS, onAddIncome, onNotify }) {
+    const accountKeys = useMemo(() => Object.keys(ACCOUNTS || {}), [ACCOUNTS]);
+
+    // primera cuenta disponible
+    const firstAccount = accountKeys[0] || "";
+
     const [amount, setAmount] = useState("");
     const [currency, setCurrency] = useState("MXN");
     const [rate, setRate] = useState("");
-    const [account, setAccount] = useState("bbva");
+    const [account, setAccount] = useState(firstAccount);
     const [isSalary, setIsSalary] = useState(false);
+
+    // cuando cambian las cuentas, o la moneda, selecciona una válida
+    useEffect(() => {
+        if (!accountKeys.length) {
+            setAccount("");
+            return;
+        }
+        // si cuenta actual no existe o no coincide con moneda → elige primera que coincida
+        const current = ACCOUNTS[account];
+        if (!current || current.currency !== currency) {
+            const sameCurrency = accountKeys.find(k => ACCOUNTS[k].currency === currency);
+            setAccount(sameCurrency || accountKeys[0]);
+        }
+    }, [currency, accountKeys.join(","), ACCOUNTS, account]);
 
     const submit = async (e) => {
         e.preventDefault();
@@ -19,23 +37,26 @@ export default function IncomeForm({ ACCOUNTS, onAddIncome, onNotify }) {
             amount: numericAmount,
             currency,
             manualRate: parseFloat(rate) || null,
-            account,
+            account,     // 👈 se guarda en la cuenta elegida
             isSalary,
         });
-        setAmount(""); setCurrency("MXN"); setRate(""); setAccount("bbva"); setIsSalary(false);
+        // reset conservador: re-selecciona una cuenta válida para la moneda actual
+        const nextAccount = accountKeys.find(k => ACCOUNTS[k].currency === currency) || accountKeys[0] || "";
+        setAmount("");
+        setRate("");
+        setIsSalary(false);
+        setAccount(nextAccount);
     };
 
     const segBtn = (isActive) =>
         `btn btn-sm flex-1 ${isActive ? "btn-primary" : "btn-ghost"}`;
 
+    const hasAccounts = accountKeys.length > 0;
+
     return (
         <section>
-            {/* Título fuera del sub-panel, igual que en ExpenseForm */}
-            <h2 className="text-lg sm:text-xl font-semibold mb-3 text-gray-700">
-                Agregar ingreso
-            </h2>
+            <h2 className="text-lg sm:text-xl font-semibold mb-3 text-gray-700">Agregar ingreso</h2>
 
-            {/* Sub-panel suave con borde, igual que en ExpenseForm */}
             <form onSubmit={submit} className="space-y-4 bg-gray-50 p-4 rounded-xl border border-gray-100">
                 {/* Monto */}
                 <div>
@@ -51,24 +72,16 @@ export default function IncomeForm({ ACCOUNTS, onAddIncome, onNotify }) {
                     />
                 </div>
 
-                {/* Moneda (toggle segmentado) */}
+                {/* Moneda */}
                 <div>
                     <label className="label">Moneda</label>
-                    <div className="bg-slate-100 p-1 rounded-lg flex gap-1">
-                        <button
-                            type="button"
-                            onClick={() => setCurrency("MXN")}
-                            className={segBtn(currency === "MXN")}
-                            aria-pressed={currency === "MXN"}
-                        >
+                    <div className="w-full bg-slate-100 p-1 rounded-xl border border-slate-200 flex" role="group" aria-label="Seleccionar moneda">
+                        <button type="button" onClick={() => setCurrency("MXN")}
+                            className={`flex-1 px-3 py-2 text-sm font-medium transition rounded-l-xl ${currency === "MXN" ? "bg-blue-600 text-white shadow-sm" : "bg-transparent text-slate-700 hover:bg-white"}`}>
                             MXN
                         </button>
-                        <button
-                            type="button"
-                            onClick={() => setCurrency("USD")}
-                            className={segBtn(currency === "USD")}
-                            aria-pressed={currency === "USD"}
-                        >
+                        <button type="button" onClick={() => setCurrency("USD")}
+                            className={`flex-1 px-3 py-2 text-sm font-medium transition rounded-r-xl ${currency === "USD" ? "bg-blue-600 text-white shadow-sm" : "bg-transparent text-slate-700 hover:bg-white"}`}>
                             USD
                         </button>
                     </div>
@@ -96,13 +109,17 @@ export default function IncomeForm({ ACCOUNTS, onAddIncome, onNotify }) {
                         value={account}
                         onChange={(e) => setAccount(e.target.value)}
                         className="select"
+                        disabled={!hasAccounts}
                     >
-                        {Object.keys(ACCOUNTS).map((k) => (
-                            <option key={k} value={k}>
-                                {ACCOUNTS[k].name}
-                            </option>
-                        ))}
+                        {accountKeys
+                            .filter(k => ACCOUNTS[k].currency === currency)
+                            .map((k) => (
+                                <option key={k} value={k}>{ACCOUNTS[k].name}</option>
+                            ))}
                     </select>
+                    {!hasAccounts && (
+                        <p className="text-xs text-slate-500 mt-1">No tienes cuentas aún. Crea una debajo.</p>
+                    )}
                 </div>
 
                 {/* Checkbox salario */}
@@ -117,7 +134,7 @@ export default function IncomeForm({ ACCOUNTS, onAddIncome, onNotify }) {
                 </label>
 
                 {/* Botón */}
-                <button type="submit" className="btn btn-primary w-full">
+                <button type="submit" className="btn btn-primary w-full" disabled={!hasAccounts}>
                     Agregar ingreso
                 </button>
             </form>
