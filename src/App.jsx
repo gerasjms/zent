@@ -836,66 +836,379 @@ export default function App() {
     document.body.removeChild(a);
   };
 
+  // Exporta en el formato simple de la tabla: Fecha, Tipo, Descripción, Cuenta, Monto
+  const handleCsvExportTabla = () => {
+    const pad = (n) => String(n).padStart(2, "0");
+    const formatDateEs = (iso) => {
+      if (!iso) return "";
+      const d = new Date(iso);
+      if (isNaN(d)) return "";
+      let h = d.getHours();
+      const m = d.getMinutes();
+      const ampm = h >= 12 ? "p.m." : "a.m.";
+      h = h % 12; if (h === 0) h = 12;
+      return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${String(d.getFullYear()).slice(-2)}, ${pad(h)}:${pad(m)} ${ampm}`;
+    };
+    const normCurrency = (c) => (String(c).toUpperCase() === "USD" ? "USD" : "MXN");
+    const fmtMoney = (n, c) => new Intl.NumberFormat(
+      c === "USD" ? "en-US" : "es-MX",
+      { style: "currency", currency: c }
+    ).format(Number(n) || 0);
+    const accountNameBySlug = (slug) => ACCOUNTS?.[slug]?.name || slug || "";
+
+    const rows = [];
+
+    for (const i of incomes) {
+      const fecha = formatDateEs(i.timestamp);
+      const tipo = "Ingreso";
+      const desc =
+        (i.description ?? "").trim() ||
+        ((i.originalText ?? "").split("(")[0].trim()) ||
+        (i.currency?.toUpperCase() === "USD" && i.amount ? `$${Number(i.amount).toFixed(2)}` : "Ingreso");
+      const cuenta = accountNameBySlug(i.account);
+      const monto = `+${fmtMoney(i.convertedAmount ?? i.amount ?? 0, "MXN")}`;
+      rows.push([fecha, tipo, desc, cuenta, monto]);
+    }
+
+    for (const e of expenses) {
+      const fecha = formatDateEs(e.timestamp);
+      const tipo = "Egreso";
+      const cuenta = accountNameBySlug(e.account);
+      const cur = normCurrency(e.currency || ACCOUNTS?.[e.account]?.currency || "MXN");
+      const desc = (e.description ?? e.category ?? "Egreso").toString();
+      const monto = `-${fmtMoney(e.amount ?? 0, cur)}`;
+      rows.push([fecha, tipo, desc, cuenta, monto]);
+    }
+
+    for (const t of transfers) {
+      const fecha = formatDateEs(t.timestamp);
+      {
+        const tipo = "Envío";
+        const desc = `a ${accountNameBySlug(t.to)}`;
+        const cuenta = accountNameBySlug(t.from);
+        const cur = normCurrency(t.currencySent || ACCOUNTS?.[t.from]?.currency || "MXN");
+        const monto = `-${fmtMoney(t.amountSent ?? 0, cur)}`;
+        rows.push([fecha, tipo, desc, cuenta, monto]);
+      }
+      {
+        const tipo = "Recepción";
+        const desc = `de ${accountNameBySlug(t.from)}`;
+        const cuenta = accountNameBySlug(t.to);
+        const cur = normCurrency(t.currencyReceived || ACCOUNTS?.[t.to]?.currency || "MXN");
+        const monto = `+${fmtMoney(t.amountReceived ?? 0, cur)}`;
+        rows.push([fecha, tipo, desc, cuenta, monto]);
+      }
+    }
+
+    rows.sort((a, b) => {
+      const parse = (s) => {
+        const m = s.match(/^(\d{2})\/(\d{2})\/(\d{2}),\s*(\d{2}):(\d{2})\s*(a\.m\.|p\.m\.)$/i);
+        if (!m) return 0;
+        let [_, dd, MM, yy, hh, mm, ap] = m;
+        let year = 2000 + Number(yy);
+        let hour = Number(hh) % 12;
+        if (/p\.m\./i.test(ap)) hour += 12;
+        return Date.UTC(year, Number(MM) - 1, Number(dd), hour, Number(mm), 0);
+      };
+      return parse(b[0]) - parse(a[0]);
+    });
+
+    const headers = ["Fecha", "Tipo", "Descripción", "Cuenta", "Monto"];
+    const esc = (s) => `"${String(s ?? "").replace(/"/g, '""')}"`;
+    const csv = [headers.join(","), ...rows.map(r => r.map(esc).join(","))].join("\n");
+    const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "historial_financiero_tabla.csv";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
+
+
+
+  // Reemplaza TODO tu handleCsvImport por esta versión:
   const handleCsvImport = (e) => {
     const file = e.target.files?.[0];
-    if (!file || !isFirebaseReady || !userId) return;
+    if (!file || !userId || !db) {
+      showNotification("No se pudo importar: sesión o base de datos no lista.", "error");
+      return;
+    }
+
     const reader = new FileReader();
+
     reader.onload = async (ev) => {
       try {
-        const text = ev.target.result;
-        const lines = text.trim().split("\n");
-        const headers = lines[0].split(",").map((h) => h.trim().replace(/"/g, ""));
-        const parseNum = (v) => (v && v.trim() !== "" && v !== "null" ? parseFloat(v) : null);
+        const text = String(ev.target?.result || "").trim();
+        if (!text) throw new Error("Archivo vacío");
 
-        for (let i = 1; i < lines.length; i++) {
-          const values = lines[i].match(/(".*?"|[^",]+)(?=\s*,|\s*$)/g) || [];
-          const row = headers.reduce((o, h, idx) => {
-            o[h] = (values[idx] ?? "").replace(/"/g, "");
-            return o;
-          }, {});
+        // --- Utilidades de parsing ---
+        const parseCsvLine = (line) => {
+          // Extrae campos respetando comillas dobles
+          const re = /("([^"]*(?:""[^"]*)*)"|[^,]*)(,|$)/g;
+          const out = [];
+          let m;
+          let i = 0;
+          while ((m = re.exec(line)) !== null) {
+            let cell = m[1] ?? "";
+            // Si venía entre comillas, des-escapar comillas dobles
+            if (cell.startsWith('"') && cell.endsWith('"')) {
+              cell = cell.slice(1, -1).replace(/""/g, '"');
+            }
+            out.push(cell);
+            i++;
+            if (m.index === re.lastIndex) re.lastIndex++;
+          }
+          return out;
+        };
 
-          if (row.account) row.account = toSlug(row.account) || row.account;
-          if (row.from) row.from = toSlug(row.from) || row.from;
-          if (row.to) row.to = toSlug(row.to) || row.to;
+        const toLines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
+        if (toLines.length < 2) throw new Error("El CSV no tiene filas suficientes.");
 
-          if (row.type === "income") {
-            const newIncome = {
-              ...row,
-              amount: parseNum(row.amount),
-              convertedAmount: parseNum(row.convertedAmount),
-              rateUsed: parseNum(row.rateUsed),
-              isSalary: row.isSalary === "true" || row.isSalary === true,
+        // Heaaders (normalizados a minúsculas)
+        const headersRaw = parseCsvLine(toLines[0]);
+        const headers = headersRaw.map((h) => (h || "").trim());
+        const headersLower = headers.map((h) => h.toLowerCase());
+
+        const hIdx = (name) => headersLower.indexOf(name.toLowerCase());
+        const has = (name) => hIdx(name) !== -1;
+
+        // Detectar formato "tabla" (export que muestra Fecha, Tipo, Descripción, Cuenta, Monto)
+        const isTableFormat =
+          (has("fecha") || has("Fecha")) &&
+          (has("tipo") || has("Tipo")) &&
+          (has("cuenta") || has("Cuenta")) &&
+          (has("monto") || has("Monto"));
+
+        const escTrim = (s) => (s ?? "").toString().trim();
+        const parseNum = (v) => {
+          if (v == null) return null;
+          let s = String(v).trim();
+          // Limpiar formato tipo “$1,234.56” o “+$1,234.56” o “-$1,234.56”
+          s = s.replace(/[+$\s]/g, "").replace(/,/g, "");
+          if (s === "") return null;
+          const n = Number(s);
+          return Number.isFinite(n) ? n : null;
+        };
+
+        // Insert helpers
+        const addIncome = (obj) =>
+          addDoc(collection(db, "artifacts", APP_ID, "users", userId, "incomes"), obj);
+        const addExpense = (obj) =>
+          addDoc(collection(db, "artifacts", APP_ID, "users", userId, "expenses"), obj);
+        const addTransfer = (obj) =>
+          addDoc(collection(db, "artifacts", APP_ID, "users", userId, "transfers"), obj);
+
+        // --- Importación ---
+        let imported = 0;
+
+        if (isTableFormat) {
+          // ====== MODO TABLA ======
+          const idxFecha = hIdx("fecha");
+          const idxTipo = hIdx("tipo");
+          const idxDesc = hIdx("descripción") !== -1 ? hIdx("descripción") : hIdx("descripcion");
+          const idxCuenta = hIdx("cuenta");
+          const idxMonto = hIdx("monto");
+
+          for (let i = 1; i < toLines.length; i++) {
+            const row = parseCsvLine(toLines[i]);
+            if (!row.length) continue;
+
+            const rawTipo = escTrim(row[idxTipo] || "");
+            const tipo = rawTipo.toLowerCase();
+            const cuenta = escTrim(row[idxCuenta] || "");
+            const desc = idxDesc !== -1 ? escTrim(row[idxDesc] || "") : null;
+            let montoStr = String(row[idxMonto] || "").trim();
+
+            // Determinar signo y moneda por prefijo
+            const isPositive = montoStr.startsWith("+");
+            const isNegative = montoStr.startsWith("-");
+            const isUsd = /\$/.test(montoStr) && /[0-9]/.test(montoStr) && /[$]/.test(montoStr); // genérico
+
+            // Limpiar y obtener valor
+            const amountAbs = parseNum(montoStr);
+            if (amountAbs == null) continue;
+
+            // Fecha -> ISO (dejamos original como texto si no podemos parsear)
+            const rawFecha = escTrim(row[idxFecha] || "");
+            const iso = (() => {
+              // Intento rápido: Date.parse sobre “DD/MM/YY, HH:MM [a.m.|p.m.]”
+              // Si falla, guardamos timestamp actual para no romper.
+              const d = new Date(rawFecha);
+              if (!Number.isNaN(d.getTime())) return d.toISOString();
+              return new Date().toISOString();
+            })();
+
+            if (tipo === "ingreso") {
+              // El CSV de tabla ya trae el monto mostrado en la UI.
+              // Si la cuenta es USD (p.ej. Dolar App), aquí IMPORTAMOS como ingreso MXN si ya venía convertido.
+              // Heurística: si el texto tenía un "+$6,xxx.xx" pensamos que UI ya mostró MXN. Guardamos como MXN.
+              const income = {
+                timestamp: iso,
+                amount: amountAbs,           // monto como se muestra
+                currency: "MXN",
+                convertedAmount: amountAbs,  // conservamos MXN
+                originalText: desc || null,
+                account: cuenta,
+                isSalary: false,
+                rateUsed: null,
+                description: desc || null,
+              };
+              await addIncome(income);
+              imported++;
+            } else if (tipo === "egreso") {
+              const expense = {
+                timestamp: iso,
+                amount: amountAbs,      // lo que ves en la tabla
+                currency: "MXN",
+                convertedAmount: amountAbs,
+                category: desc || null,
+                account: cuenta,
+                type: null,
+                group: null,
+                description: desc || null,
+              };
+              await addExpense(expense);
+              imported++;
+            } else if (tipo === "envío" || tipo === "recepción") {
+              // En la tabla cada transferencia aparece en 2 filas (salida/entrada).
+              // Para evitar duplicados, aquí no intentamos recomponer la transferencia original.
+              // Si quisieras reconstruirlas, necesitarías pairing por timestamp cercano + descripción.
+              // De momento las omitimos para no duplicar.
+              continue;
+            } else {
+              // Otro tipo no reconocido en tabla → ignoramos
+              continue;
+            }
+          }
+        } else {
+          // ====== MODO TÉCNICO ======
+          // Leemos por cabeceras: type, amount, currency, convertedAmount, rateUsed, category, group, ...
+          const idx = (name, fallback = null) => {
+            const i = hIdx(name);
+            return i === -1 ? fallback : i;
+          };
+
+          for (let i = 1; i < toLines.length; i++) {
+            const row = parseCsvLine(toLines[i]);
+            if (!row.length) continue;
+
+            const cell = (name) => {
+              const i = idx(name);
+              return i == null ? "" : row[i];
             };
-            delete newIncome.id;
-            await addDoc(collection(db, "artifacts", APP_ID, "users", userId, "incomes"), newIncome);
-          } else if (row.type === "expense") {
-            const newExpense = {
-              ...row,
-              amount: parseNum(row.amount),
-              convertedAmount: parseNum(row.convertedAmount),
-            };
-            delete newExpense.id;
-            await addDoc(collection(db, "artifacts", APP_ID, "users", userId, "expenses"), newExpense);
-          } else if (row.type === "transfer") {
-            const newTransfer = {
-              ...row,
-              amountSent: parseNum(row.amountSent),
-              amountReceived: parseNum(row.amountReceived),
-              spread: parseNum(row.spread),
-            };
-            delete newTransfer.id;
-            await addDoc(collection(db, "artifacts", APP_ID, "users", userId, "transfers"), newTransfer);
+
+            const typeRaw = (cell("type") || "").toString().trim().toLowerCase();
+
+            if (typeRaw === "income") {
+              const baseAmount = parseNum(cell("amount"));
+              const currency = escTrim(cell("currency")) || "MXN";
+              let convertedAmount = parseNum(cell("convertedAmount"));
+              const rateUsed = parseNum(cell("rateUsed"));
+
+              if ((convertedAmount == null || !Number.isFinite(convertedAmount)) && baseAmount != null) {
+                convertedAmount =
+                  currency.toUpperCase() === "USD"
+                    ? baseAmount * (Number(usdToMxn) || 17)
+                    : baseAmount;
+              }
+
+              const newIncome = {
+                timestamp: escTrim(cell("timestamp")) || new Date().toISOString(),
+                amount: baseAmount,
+                currency,
+                convertedAmount,
+                rateUsed: rateUsed ?? null,
+                isSalary: String(escTrim(cell("isSalary"))).toLowerCase() === "true",
+                originalText: escTrim(cell("originalText")) || null,
+                account: escTrim(cell("account")),
+                description: escTrim(cell("description")) || null,
+              };
+              await addIncome(newIncome);
+              imported++;
+            } else if (typeRaw === "expense" || typeRaw === "need" || typeRaw === "want") {
+              // Mapeo need/want como expense con semántica y grupo correctos
+              const baseAmount = parseNum(cell("amount"));
+              const currency = escTrim(cell("currency")) || "MXN";
+              let convertedAmount = parseNum(cell("convertedAmount"));
+              const category = escTrim(cell("category")) || null;
+
+              if ((convertedAmount == null || !Number.isFinite(convertedAmount)) && baseAmount != null) {
+                convertedAmount =
+                  currency.toUpperCase() === "USD"
+                    ? baseAmount * (Number(usdToMxn) || 17)
+                    : baseAmount;
+              }
+
+              const groupByType =
+                typeRaw === "need"
+                  ? "Necesidades"
+                  : typeRaw === "want"
+                    ? "Deseos / Ocio"
+                    : escTrim(cell("group")) || null;
+
+              const typeSemantic =
+                typeRaw === "need"
+                  ? "need"
+                  : typeRaw === "want"
+                    ? "want"
+                    : escTrim(cell("typeSemantic")) || null;
+
+              const newExpense = {
+                timestamp: escTrim(cell("timestamp")) || new Date().toISOString(),
+                amount: baseAmount,
+                currency,
+                convertedAmount,
+                category,
+                account: escTrim(cell("account")),
+                group: groupByType,
+                type: typeSemantic,
+                description: escTrim(cell("description")) || null,
+              };
+              await addExpense(newExpense);
+              imported++;
+            } else if (typeRaw === "transfer") {
+              const newTransfer = {
+                timestamp: escTrim(cell("timestamp")) || new Date().toISOString(),
+                from: escTrim(cell("from")),
+                to: escTrim(cell("to")),
+                amountSent: parseNum(cell("amountSent")),
+                currencySent: escTrim(cell("currencySent")) || null,
+                amountReceived: parseNum(cell("amountReceived")),
+                currencyReceived: escTrim(cell("currencyReceived")) || null,
+                spread: parseNum(cell("spread")),
+                rate: parseNum(cell("rateUsed")) || parseNum(cell("rate")) || null,
+                description: escTrim(cell("description")) || null,
+              };
+              await addTransfer(newTransfer);
+              imported++;
+            } else {
+              // Tipo desconocido → ignoramos fila para no romper import masivo
+              continue;
+            }
           }
         }
-        showNotification("¡Datos importados correctamente!");
+
+        showNotification(`Importación completa: ${imported} filas importadas.`, "success");
       } catch (err) {
         console.error("CSV import error", err);
-        showNotification("Error al procesar el archivo CSV.", "error");
+        showNotification(`Error al procesar el CSV: ${err?.message || err}`, "error");
+      } finally {
+        // Resetea el input para permitir re-importar el mismo archivo si se desea
+        e.target.value = "";
       }
     };
+
+    reader.onerror = () => {
+      showNotification("No se pudo leer el archivo CSV.", "error");
+      e.target.value = "";
+    };
+
     reader.readAsText(file);
-    e.target.value = "";
   };
+
+
+
 
   const clearDates = () => {
     setStartDate("");
@@ -1029,14 +1342,16 @@ export default function App() {
 
             <div className="lg:col-span-3">
               <HistoryTable
-                ACCOUNTS={accountsMap}
-                ACCOUNT_IDS={accountIds}
+                ACCOUNTS={ACCOUNTS}
+                ACCOUNT_IDS={{}}
                 movements={allMovements || []}
                 onDeleteClick={(id, type) => setItemToDelete({ id, type })}
-                onCsvExport={handleCsvExport}
+                onCsvExport={handleCsvExport}           // técnico
+                onCsvExportTable={handleCsvExportTabla} // tabla
                 onCsvImport={handleCsvImport}
                 onUpdateMovement={handleUpdateMovement}
               />
+
             </div>
           </main>
         </div>

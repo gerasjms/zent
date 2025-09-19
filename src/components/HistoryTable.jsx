@@ -41,6 +41,7 @@ export default function HistoryTable({
     onDeleteClick,
     onCsvExport,
     onCsvImport,
+    onCsvExportTable,
     onUpdateMovement,       // (id, tipo, payload)
 }) {
     const importRef = useRef(null);
@@ -246,6 +247,14 @@ export default function HistoryTable({
                     </button>
                     <button onClick={onCsvExport} className="btn btn-primary btn-sm" type="button">
                         Exportar CSV
+                    </button>
+                    <button
+                        onClick={onCsvExportTable}
+                        className="btn btn-ghost btn-sm"
+                        type="button"
+                        disabled={!onCsvExportTable}   // por si no te pasan el prop
+                    >
+                        Exportar Tabla
                     </button>
                 </div>
             </div>
