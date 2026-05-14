@@ -1,36 +1,97 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Finanzas — Control total de tu dinero
 
-## Getting Started
+App personal de finanzas que sincroniza BBVA, Mercado Pago, ARQ y Edenred en un solo lugar, con motor de presupuesto 50/30/20 y recomendaciones automáticas de cuentas.
 
-First, run the development server:
+## Stack
+
+- **Frontend/Backend**: Next.js 15 (App Router, TypeScript)
+- **Auth + DB**: Supabase (Google OAuth + PostgreSQL)
+- **UI**: shadcn/ui + Tailwind CSS + Recharts
+- **Deploy**: Vercel (con Cron Jobs cada 4h para auto-sync)
+
+## Configuración inicial (paso a paso)
+
+### 1. Supabase
+
+1. Crea un proyecto en [supabase.com](https://supabase.com)
+2. Ve a **SQL Editor** y ejecuta el archivo `supabase/schema.sql`
+3. Ve a **Authentication → Providers → Google** y habilita Google OAuth:
+   - Necesitas un OAuth Client ID de [Google Cloud Console](https://console.cloud.google.com)
+   - URI de redirección: `https://TU_PROJECT_ID.supabase.co/auth/v1/callback`
+4. Copia tus credenciales desde **Settings → API**
+
+### 2. BBVA API Market México
+
+1. Regístrate en [bbvaapimarket.com](https://www.bbvaapimarket.com/en/register/)
+2. Crea una nueva aplicación → selecciona las APIs: **Accounts**, **Balances**, **Transactions**
+3. Configura el Redirect URI: `https://tu-app.vercel.app/api/bbva/callback`
+4. Copia el `Client ID` y `Client Secret`
+
+### 3. Mercado Pago
+
+1. Entra a [mercadopago.com.mx/developers/panel/app](https://www.mercadopago.com.mx/developers/panel/app)
+2. Crea una nueva aplicación
+3. En **Credenciales de producción**, copia el `Client ID` y `Client Secret`
+4. Agrega el Redirect URI: `https://tu-app.vercel.app/api/mercadopago/callback`
+
+### 4. Variables de entorno
+
+Copia `.env.example` a `.env.local` y llena todos los valores:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+cp .env.example .env.local
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### 5. Deploy en Vercel
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+# Instalar Vercel CLI
+npm i -g vercel
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+# Deploy
+vercel
 
-## Learn More
+# Configurar variables de entorno en Vercel
+vercel env add NEXT_PUBLIC_SUPABASE_URL
+vercel env add NEXT_PUBLIC_SUPABASE_ANON_KEY
+vercel env add SUPABASE_SERVICE_ROLE_KEY
+vercel env add BBVA_CLIENT_ID
+vercel env add BBVA_CLIENT_SECRET
+vercel env add BBVA_REDIRECT_URI        # https://tu-app.vercel.app/api/bbva/callback
+vercel env add MP_CLIENT_ID
+vercel env add MP_CLIENT_SECRET
+vercel env add MP_REDIRECT_URI          # https://tu-app.vercel.app/api/mercadopago/callback
+vercel env add CRON_SECRET              # string aleatorio largo
 
-To learn more about Next.js, take a look at the following resources:
+# Deploy a producción
+vercel --prod
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+El `vercel.json` ya incluye el Cron Job que sincroniza automáticamente cada 4 horas.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+### 6. Desarrollo local
 
-## Deploy on Vercel
+```bash
+npm install
+npm run dev
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Abre [http://localhost:3000](http://localhost:3000)
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Funcionalidades
+
+| Feature | Estado |
+|---------|--------|
+| Auth con Google (Supabase) | ✅ |
+| Dashboard con presupuesto 50/30/20 | ✅ |
+| BBVA → OAuth2 + sync automático | ✅ |
+| Mercado Pago → OAuth2 + sync automático | ✅ |
+| ARQ → importación CSV | ✅ |
+| Edenred → importación CSV | ✅ |
+| Historial con filtros avanzados | ✅ |
+| Motor de recomendaciones de cuentas | ✅ |
+| Cron Job cada 4h (Vercel) | ✅ |
+| Auto-categorización por palabras clave | ✅ |
+| Gráficas de tendencia 6 meses | ✅ |
+| Transferencias sin doble conteo | ✅ |
+| Modo mobile (nav inferior) | ✅ |
