@@ -1,13 +1,15 @@
 'use client'
 
-import { type Account, type AccountPurpose } from '@/types'
-import { type AccountAssignmentRow, setAssignment } from '@/lib/hooks/use-finance-data'
+import { type Account, type AccountPurpose, type BudgetSummary } from '@/types'
+import { type AccountAssignmentRow, setAccountPurpose } from '@/lib/hooks/use-finance-data'
 import { formatCurrency } from '@/lib/utils/currency'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { toast } from 'sonner'
 
-const BUCKETS: { key: Exclude<AccountPurpose, 'all'>; label: string; icon: string; color: string }[] = [
+type StrategyKey = 'needs' | 'wants' | 'saving'
+
+const BUCKETS: { key: StrategyKey; label: string; icon: string; color: string }[] = [
   { key: 'needs', label: 'Necesidades', icon: '🛒', color: '#f59e0b' },
   { key: 'wants', label: 'Ocio', icon: '✨', color: '#8b5cf6' },
   { key: 'saving', label: 'Ahorro', icon: '🐷', color: '#10b981' },
@@ -16,24 +18,23 @@ const BUCKETS: { key: Exclude<AccountPurpose, 'all'>; label: string; icon: strin
 interface StrategyAllocationProps {
   accounts: Account[]
   assignments: AccountAssignmentRow[]
+  summary: BudgetSummary
   userId: string
 }
 
-export function StrategyAllocation({ accounts, assignments, userId }: StrategyAllocationProps) {
-  const amountFor = (accountId: string, purpose: AccountPurpose) =>
-    Number(assignments.find(a => a.account_id === accountId && a.purpose === purpose)?.allocated_amount ?? 0)
+export function StrategyAllocation({ accounts, assignments, summary, userId }: StrategyAllocationProps) {
+  const purposeOf = (accountId: string): AccountPurpose | null =>
+    assignments.find(a => a.account_id === accountId)?.purpose ?? null
 
-  const bucketTotal = (purpose: AccountPurpose) =>
-    assignments.filter(a => a.purpose === purpose).reduce((s, a) => s + Number(a.allocated_amount), 0)
+  const accountsFor = (key: StrategyKey) => accounts.filter(a => purposeOf(a.id) === key)
+  const realFor = (key: StrategyKey) => accountsFor(key).reduce((s, a) => s + Number(a.balance || 0), 0)
+  const targetFor = (key: StrategyKey) =>
+    key === 'needs' ? summary.needs.budget : key === 'wants' ? summary.wants.budget : summary.savings.budget
 
-  const assignedForAccount = (accountId: string) =>
-    BUCKETS.reduce((s, b) => s + amountFor(accountId, b.key), 0)
-
-  async function handleSave(accountId: string, purpose: AccountPurpose, raw: string) {
-    const amount = Math.max(0, parseFloat(raw) || 0)
-    if (amount === amountFor(accountId, purpose)) return
+  async function handleLink(accountId: string, value: string | null) {
+    const purpose = !value || value === 'none' ? null : (value as AccountPurpose)
     try {
-      await setAssignment(userId, accountId, purpose, amount)
+      await setAccountPurpose(userId, accountId, purpose)
     } catch (e) {
       toast.error((e as Error).message)
     }
@@ -43,7 +44,7 @@ export function StrategyAllocation({ accounts, assignments, userId }: StrategyAl
     return (
       <Card>
         <CardContent className="py-8 text-center text-muted-foreground text-sm">
-          Agrega cuentas primero para asignarlas a tu estrategia.
+          Agrega cuentas primero para vincularlas a tu estrategia.
         </CardContent>
       </Card>
     )
@@ -52,74 +53,84 @@ export function StrategyAllocation({ accounts, assignments, userId }: StrategyAl
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Tus cuentas por estrategia</CardTitle>
+        <CardTitle className="text-base">Cuentas por estrategia</CardTitle>
         <p className="text-sm text-muted-foreground">
-          Reparte el saldo de cada cuenta entre tus buckets. Te dice cuánto tienes destinado a cada cosa.
+          Vincula cada cuenta a un propósito y compara lo que tienes contra lo que tu estrategia indica.
         </p>
       </CardHeader>
       <CardContent className="space-y-6">
-        {/* Totales por bucket */}
-        <div className="grid grid-cols-3 gap-3">
-          {BUCKETS.map(b => (
-            <div
-              key={b.key}
-              className="rounded-xl p-3 text-center"
-              style={{ backgroundColor: b.color + '12', border: `1px solid ${b.color}30` }}
-            >
-              <p className="text-xs text-muted-foreground">{b.icon} {b.label}</p>
-              <p className="text-lg font-bold" style={{ color: b.color }}>
-                {formatCurrency(bucketTotal(b.key))}
-              </p>
-            </div>
-          ))}
-        </div>
-
-        {/* Matriz cuenta × bucket */}
-        <div className="space-y-3">
-          {accounts.map(account => {
-            const assigned = assignedForAccount(account.id)
-            const balance = Number(account.balance || 0)
-            const unassigned = balance - assigned
-            const overAssigned = assigned > balance + 0.01
+        {/* Comparación real vs estrategia, por bucket */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {BUCKETS.map(b => {
+            const real = realFor(b.key)
+            const target = targetFor(b.key)
+            const diff = real - target
+            const linked = accountsFor(b.key)
             return (
-              <div key={account.id} className="rounded-lg border p-3 space-y-3">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="text-xl shrink-0">{account.icon}</span>
-                    <span className="font-medium truncate">{account.name}</span>
-                  </div>
-                  <div className="text-right shrink-0">
-                    <p className="text-xs text-muted-foreground">Saldo</p>
-                    <p className="font-semibold text-sm">{formatCurrency(balance, account.currency)}</p>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-3 gap-2">
-                  {BUCKETS.map(b => (
-                    <div key={b.key} className="space-y-1">
-                      <label className="text-xs text-muted-foreground">{b.icon} {b.label}</label>
-                      <Input
-                        key={`${account.id}-${b.key}-${amountFor(account.id, b.key)}`}
-                        type="number"
-                        min={0}
-                        step="0.01"
-                        defaultValue={amountFor(account.id, b.key) || ''}
-                        placeholder="0"
-                        className="h-9"
-                        onBlur={e => handleSave(account.id, b.key, e.target.value)}
-                      />
-                    </div>
-                  ))}
-                </div>
-
-                <p className={`text-xs ${overAssigned ? 'text-destructive font-medium' : 'text-muted-foreground'}`}>
-                  {overAssigned
-                    ? `⚠️ Asignaste ${formatCurrency(assigned)} pero el saldo es ${formatCurrency(balance)}`
-                    : `Sin asignar: ${formatCurrency(unassigned)}`}
+              <div
+                key={b.key}
+                className="rounded-xl p-4 space-y-2"
+                style={{ backgroundColor: b.color + '10', border: `1px solid ${b.color}30` }}
+              >
+                <p className="text-sm font-semibold" style={{ color: b.color }}>
+                  {b.icon} {b.label}
                 </p>
+                <div className="space-y-0.5 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Tienes</span>
+                    <span className="font-semibold">{formatCurrency(real)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Estrategia</span>
+                    <span>{formatCurrency(target)}</span>
+                  </div>
+                </div>
+                <p className={`text-xs font-medium ${diff >= -0.01 ? 'text-emerald-600' : 'text-amber-600'}`}>
+                  {diff >= -0.01
+                    ? `✓ Cubierto${diff > 0.01 ? ` (+${formatCurrency(diff)})` : ''}`
+                    : `Faltan ${formatCurrency(-diff)} por transferir`}
+                </p>
+                {linked.length > 0 && (
+                  <div className="flex flex-wrap gap-1 pt-1">
+                    {linked.map(a => (
+                      <span key={a.id} className="text-xs bg-background/60 rounded px-1.5 py-0.5">
+                        {a.icon} {a.name}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
             )
           })}
+        </div>
+
+        {/* Vincular cada cuenta a un propósito */}
+        <div className="space-y-2">
+          <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+            Vincular cuentas
+          </h3>
+          {accounts.map(account => (
+            <div key={account.id} className="flex items-center justify-between gap-3 rounded-lg border p-3">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="text-xl shrink-0">{account.icon}</span>
+                <div className="min-w-0">
+                  <p className="font-medium truncate">{account.name}</p>
+                  <p className="text-xs text-muted-foreground">{formatCurrency(Number(account.balance || 0), account.currency)}</p>
+                </div>
+              </div>
+              <Select value={purposeOf(account.id) ?? 'none'} onValueChange={v => handleLink(account.id, v)}>
+                <SelectTrigger className="w-44 shrink-0">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Sin asignar</SelectItem>
+                  <SelectItem value="needs">🛒 Necesidades</SelectItem>
+                  <SelectItem value="wants">✨ Ocio</SelectItem>
+                  <SelectItem value="saving">🐷 Ahorro</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          ))}
         </div>
       </CardContent>
     </Card>
