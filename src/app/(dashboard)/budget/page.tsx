@@ -36,9 +36,11 @@ export default function BudgetPage() {
         </p>
       </div>
 
+      {/* Tarjetas a ancho completo para que no se empalmen */}
+      <BudgetOverview summary={summary} />
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
-          <BudgetOverview summary={summary} />
           <BudgetDetailChart trend={trend} />
         </div>
         <div>
