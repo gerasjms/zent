@@ -1,8 +1,8 @@
-import { createClient } from '@/lib/supabase/server'
-import { redirect } from 'next/navigation'
+'use client'
+
 import { calculateBudgetSummary } from '@/lib/budget/engine'
 import { generateAccountRecommendations } from '@/lib/recommendations/engine'
-import { type Transaction, type Account, type BudgetConfig } from '@/types'
+import { type BudgetConfig } from '@/types'
 import { BudgetOverview } from '@/components/dashboard/BudgetOverview'
 import { AccountCards } from '@/components/dashboard/AccountCards'
 import { SpendingChart } from '@/components/dashboard/SpendingChart'
@@ -11,42 +11,26 @@ import { RecommendationAlert } from '@/components/dashboard/RecommendationAlert'
 import { DashboardActions } from '@/components/dashboard/DashboardActions'
 import { format, startOfMonth } from 'date-fns'
 import { es } from 'date-fns/locale'
-import { calcAccountBalances } from '@/lib/utils/balance'
+import { useAccounts, useTransactions, useBudgetConfig } from '@/lib/hooks/use-finance-data'
+import { DashboardSkeleton } from '@/components/layout/loading-states'
 
-export default async function DashboardPage() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
+const DEFAULT_BUDGET: BudgetConfig = {
+  id: '', user_id: '', needs_pct: 50, wants_pct: 30, savings_pct: 20,
+  currency: 'MXN', period: 'monthly', created_at: '', updated_at: '',
+}
 
-  // Cargar datos en paralelo
-  const [accountsRes, transactionsRes, allTxRes, budgetRes] = await Promise.all([
-    supabase.from('accounts').select('*').eq('user_id', user.id).order('created_at'),
-    supabase.from('transactions').select('*').eq('user_id', user.id).order('date', { ascending: false }).limit(200),
-    supabase.from('transactions').select('account_id, type, amount_mxn, is_transfer_credit').eq('user_id', user.id),
-    supabase.from('budget_config').select('*').eq('user_id', user.id).single(),
-  ])
+export default function DashboardPage() {
+  const { data: accounts = [], isLoading: loadingAccounts } = useAccounts()
+  const { data: transactions = [], isLoading: loadingTx } = useTransactions(200)
+  const { data: budgetConfig, isLoading: loadingBudget } = useBudgetConfig()
 
-  const accounts: Account[] = accountsRes.data || []
-  const transactions: Transaction[] = transactionsRes.data || []
-  const balanceMap = calcAccountBalances(allTxRes.data || [])
-  const accountsWithBalance = accounts.map(a => ({ ...a, balance: balanceMap[a.id] ?? 0 }))
+  // Solo skeleton en el PRIMER load. En navegaciones posteriores SWR sirve la
+  // caché al instante (keepPreviousData) y revalida en segundo plano.
+  if (loadingAccounts || loadingTx || loadingBudget) return <DashboardSkeleton />
 
-  const defaultBudget: BudgetConfig = {
-    id: '',
-    user_id: user.id,
-    needs_pct: 50,
-    wants_pct: 30,
-    savings_pct: 20,
-    currency: 'MXN',
-    period: 'monthly',
-    created_at: '',
-    updated_at: '',
-  }
-  const budgetConfig: BudgetConfig = budgetRes.data || defaultBudget
-
-  const budgetSummary = calculateBudgetSummary(transactions, budgetConfig)
+  const config = budgetConfig ?? DEFAULT_BUDGET
+  const budgetSummary = calculateBudgetSummary(transactions, config)
   const recommendations = generateAccountRecommendations(accounts, transactions)
-
   const monthLabel = format(startOfMonth(new Date()), 'MMMM yyyy', { locale: es })
 
   return (
@@ -76,9 +60,9 @@ export default async function DashboardPage() {
           <RecentTransactions transactions={transactions} />
         </div>
 
-        {/* Account Cards */}
+        {/* Account Cards (balance ya viene precalculado de la BD) */}
         <div>
-          <AccountCards accounts={accountsWithBalance} />
+          <AccountCards accounts={accounts} />
         </div>
       </div>
     </div>

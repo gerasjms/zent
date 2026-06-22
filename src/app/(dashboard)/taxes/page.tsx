@@ -1,45 +1,24 @@
-import { createClient } from '@/lib/supabase/server'
-import { redirect } from 'next/navigation'
+'use client'
+
 import { calculateTaxSummary, type TaxRegime } from '@/lib/taxes/engine'
 import { TaxDashboard } from '@/components/taxes/TaxDashboard'
-import { type Transaction } from '@/types'
+import { useTaxData, useUser } from '@/lib/hooks/use-finance-data'
+import { CardsSkeleton } from '@/components/layout/loading-states'
 
-export default async function TaxesPage() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
+export default function TaxesPage() {
+  const { data: taxData, isLoading: loadingTax } = useTaxData()
+  const { data: user, isLoading: loadingUser } = useUser()
 
-  const currentYear = new Date().getFullYear()
-  const startOfYear = `${currentYear}-01-01`
+  if (loadingTax || loadingUser || !taxData) return <CardsSkeleton maxWidth="max-w-5xl" />
 
-  const [{ data: transactions }, { data: taxConfig }, { data: taxPayments }] = await Promise.all([
-    supabase
-      .from('transactions')
-      .select('*')
-      .eq('user_id', user.id)
-      .eq('type', 'income')
-      .gte('date', startOfYear)
-      .order('date', { ascending: false }),
-    supabase
-      .from('tax_config')
-      .select('*')
-      .eq('user_id', user.id)
-      .maybeSingle(),
-    supabase
-      .from('tax_payments')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('period', { ascending: false }),
-  ])
-
-  const regime: TaxRegime = (taxConfig?.regime as TaxRegime) ?? 'general'
-  const summary = calculateTaxSummary((transactions ?? []) as Transaction[], regime)
+  const regime: TaxRegime = (taxData.regime as TaxRegime) ?? 'general'
+  const summary = calculateTaxSummary(taxData.incomeTransactions, regime)
 
   return (
     <TaxDashboard
       summary={summary}
-      taxPayments={taxPayments ?? []}
-      userId={user.id}
+      taxPayments={taxData.taxPayments}
+      userId={user?.id ?? ''}
     />
   )
 }

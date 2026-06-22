@@ -1,25 +1,20 @@
-import { createClient } from '@/lib/supabase/server'
-import { redirect } from 'next/navigation'
+'use client'
+
 import { generateAccountRecommendations, getBestAccountForPurpose } from '@/lib/recommendations/engine'
-import { type Account, type Transaction } from '@/types'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
 import { CheckCircle2, AlertCircle, Lightbulb, TrendingUp } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils/currency'
+import { useAccounts, useTransactions } from '@/lib/hooks/use-finance-data'
+import { CardsSkeleton } from '@/components/layout/loading-states'
 
-export default async function RecommendationsPage() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
+export default function RecommendationsPage() {
+  const { data: accounts = [], isLoading: loadingAccounts } = useAccounts()
+  const { data: transactions = [], isLoading: loadingTx } = useTransactions(500)
 
-  const [accountsRes, transactionsRes] = await Promise.all([
-    supabase.from('accounts').select('*').eq('user_id', user.id),
-    supabase.from('transactions').select('*').eq('user_id', user.id).order('date', { ascending: false }).limit(500),
-  ])
+  if (loadingAccounts || loadingTx) return <CardsSkeleton />
 
-  const accounts: Account[] = accountsRes.data || []
-  const transactions: Transaction[] = transactionsRes.data || []
   const recommendations = generateAccountRecommendations(accounts, transactions)
 
   const purposeConfig = {

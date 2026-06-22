@@ -13,8 +13,8 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { toast } from 'sonner'
-import { useRouter } from 'next/navigation'
 import { Search, Trash2, ArrowDownLeft, ArrowUpRight, ArrowLeftRight, Plus, CheckSquare, Square, X } from 'lucide-react'
+import { revalidateAll } from '@/lib/hooks/use-finance-data'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { cn } from '@/lib/utils'
@@ -32,7 +32,6 @@ export function TransactionsView({ transactions, accounts }: TransactionsViewPro
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [selected, setSelected] = useState<Set<string>>(new Set())
-  const router = useRouter()
   const supabase = createClient()
 
   const filtered = useMemo(() => {
@@ -57,7 +56,7 @@ export function TransactionsView({ transactions, accounts }: TransactionsViewPro
     if (!confirm('¿Eliminar esta transacción?')) return
     const { error } = await supabase.from('transactions').delete().eq('id', id)
     if (error) toast.error(error.message)
-    else { toast.success('Transacción eliminada'); router.refresh() }
+    else { toast.success('Transacción eliminada'); revalidateAll() }
   }
 
   async function handleBulkDelete() {
@@ -68,7 +67,7 @@ export function TransactionsView({ transactions, accounts }: TransactionsViewPro
     else {
       toast.success(`${ids.length} transacciones eliminadas`)
       setSelected(new Set())
-      router.refresh()
+      revalidateAll()
     }
   }
 
@@ -169,7 +168,7 @@ export function TransactionsView({ transactions, accounts }: TransactionsViewPro
             </Select>
             <Input type="date" className="w-36" value={dateFrom} onChange={e => setDateFrom(e.target.value)} />
             <Input type="date" className="w-36" value={dateTo} onChange={e => setDateTo(e.target.value)} />
-            <AddTransactionModal accounts={accounts} onSuccess={() => router.refresh()}>
+            <AddTransactionModal accounts={accounts} onSuccess={() => revalidateAll()}>
               <Button className="gap-2"><Plus className="w-4 h-4" /> Nueva</Button>
             </AddTransactionModal>
           </div>
@@ -272,7 +271,7 @@ export function TransactionsView({ transactions, accounts }: TransactionsViewPro
                             <EditTransactionModal
                               transaction={tx}
                               accounts={accounts}
-                              onSuccess={() => router.refresh()}
+                              onSuccess={() => revalidateAll()}
                             />
                             <Button
                               size="icon"

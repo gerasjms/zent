@@ -1,28 +1,27 @@
-import { createClient } from '@/lib/supabase/server'
-import { redirect } from 'next/navigation'
+'use client'
+
 import { calculateBudgetSummary, getMonthlyTrend } from '@/lib/budget/engine'
-import { type Transaction, type BudgetConfig } from '@/types'
+import { type BudgetConfig } from '@/types'
 import { BudgetSettings } from '@/components/budget/BudgetSettings'
 import { BudgetDetailChart } from '@/components/budget/BudgetDetailChart'
 import { BudgetOverview } from '@/components/dashboard/BudgetOverview'
+import { useTransactions, useBudgetConfig, useUser } from '@/lib/hooks/use-finance-data'
+import { BudgetSkeleton } from '@/components/layout/loading-states'
 
-export default async function BudgetPage() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
+const DEFAULT_BUDGET: BudgetConfig = {
+  id: '', user_id: '', needs_pct: 50, wants_pct: 30, savings_pct: 20,
+  currency: 'MXN', period: 'monthly', created_at: '', updated_at: '',
+}
 
-  const [transactionsRes, budgetRes] = await Promise.all([
-    supabase.from('transactions').select('*').eq('user_id', user.id).order('date', { ascending: false }).limit(500),
-    supabase.from('budget_config').select('*').eq('user_id', user.id).single(),
-  ])
+export default function BudgetPage() {
+  const { data: transactions = [], isLoading: loadingTx } = useTransactions(500)
+  const { data: budgetConfig, isLoading: loadingBudget } = useBudgetConfig()
+  const { data: user, isLoading: loadingUser } = useUser()
 
-  const transactions: Transaction[] = transactionsRes.data || []
-  const defaultBudget: BudgetConfig = {
-    id: '', user_id: user.id, needs_pct: 50, wants_pct: 30, savings_pct: 20,
-    currency: 'MXN', period: 'monthly', created_at: '', updated_at: '',
-  }
-  const budgetConfig: BudgetConfig = budgetRes.data || defaultBudget
-  const summary = calculateBudgetSummary(transactions, budgetConfig)
+  if (loadingTx || loadingBudget || loadingUser) return <BudgetSkeleton />
+
+  const config = budgetConfig ?? { ...DEFAULT_BUDGET, user_id: user?.id ?? '' }
+  const summary = calculateBudgetSummary(transactions, config)
   const trend = getMonthlyTrend(transactions, 6)
 
   return (
@@ -40,7 +39,7 @@ export default async function BudgetPage() {
           <BudgetDetailChart trend={trend} />
         </div>
         <div>
-          <BudgetSettings config={budgetConfig} userId={user.id} />
+          <BudgetSettings config={config} userId={user?.id ?? ''} />
         </div>
       </div>
     </div>

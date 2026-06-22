@@ -9,8 +9,8 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { toast } from 'sonner'
-import { useRouter } from 'next/navigation'
 import { Save, Loader2 } from 'lucide-react'
+import { revalidateAll } from '@/lib/hooks/use-finance-data'
 
 interface BudgetSettingsProps {
   config: BudgetConfig
@@ -24,7 +24,6 @@ export function BudgetSettings({ config, userId }: BudgetSettingsProps) {
   const [period, setPeriod] = useState<BudgetPeriod>(config.period)
   const [refIncome, setRefIncome] = useState(config.reference_income?.toString() || '')
   const [loading, setLoading] = useState(false)
-  const router = useRouter()
   const supabase = createClient()
 
   const total = needs + wants + savings
@@ -50,7 +49,7 @@ export function BudgetSettings({ config, userId }: BudgetSettingsProps) {
 
       if (error) throw error
       toast.success('Configuración guardada')
-      router.refresh()
+      revalidateAll()
     } catch (err: unknown) {
       toast.error((err as Error).message)
     } finally {

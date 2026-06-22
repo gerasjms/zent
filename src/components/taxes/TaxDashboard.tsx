@@ -1,8 +1,8 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
 import { type TaxSummary, type TaxRegime, REGIME_LABELS, REGIME_DESCRIPTIONS } from '@/lib/taxes/engine'
+import { revalidateAll } from '@/lib/hooks/use-finance-data'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency } from '@/lib/utils/currency'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -56,7 +56,6 @@ export function TaxDashboard({ summary, taxPayments, userId }: TaxDashboardProps
   const [logPeriod, setLogPeriod] = useState(summary.currentMonth.period)
   const [logNotes, setLogNotes] = useState('')
   const [logging, setLogging] = useState(false)
-  const router = useRouter()
   const supabase = createClient()
 
   async function handleSaveRegime(newRegime: TaxRegime) {
@@ -70,7 +69,7 @@ export function TaxDashboard({ summary, taxPayments, userId }: TaxDashboardProps
       }, { onConflict: 'user_id' })
       if (error) throw error
       toast.success('Régimen actualizado')
-      router.refresh()
+      revalidateAll()
     } catch (err: unknown) {
       toast.error((err as Error).message)
     } finally {
@@ -96,7 +95,7 @@ export function TaxDashboard({ summary, taxPayments, userId }: TaxDashboardProps
       setLogOpen(false)
       setLogAmount('')
       setLogNotes('')
-      router.refresh()
+      revalidateAll()
     } catch (err: unknown) {
       toast.error((err as Error).message)
     } finally {

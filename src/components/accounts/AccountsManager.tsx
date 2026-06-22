@@ -8,8 +8,8 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
-import { useRouter } from 'next/navigation'
 import { RefreshCw, Plus, Trash2 } from 'lucide-react'
+import { revalidateAll } from '@/lib/hooks/use-finance-data'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -107,14 +107,13 @@ function AddAccountModal({ onSuccess }: { onSuccess: () => void }) {
 
 export function AccountsManager({ accounts }: AccountsManagerProps) {
   const [adding, setAdding] = useState<string | null>(null)
-  const router = useRouter()
   const supabase = createClient()
 
   async function handleDelete(id: string) {
     if (!confirm('¿Eliminar esta cuenta? Se eliminarán también sus transacciones.')) return
     const { error } = await supabase.from('accounts').delete().eq('id', id)
     if (error) toast.error(error.message)
-    else { toast.success('Cuenta eliminada'); router.refresh() }
+    else { toast.success('Cuenta eliminada'); revalidateAll() }
   }
 
   async function handleAddAccount(type: typeof accounts[number]['type']) {
@@ -136,7 +135,7 @@ export function AccountsManager({ accounts }: AccountsManagerProps) {
       })
       if (error) throw error
       toast.success(`${config.name} agregada`)
-      router.refresh()
+      revalidateAll()
     } catch (err: unknown) {
       toast.error((err as Error).message)
     } finally {
@@ -148,7 +147,7 @@ export function AccountsManager({ accounts }: AccountsManagerProps) {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">{accounts.length} cuenta{accounts.length !== 1 ? 's' : ''}</p>
-        <AddAccountModal onSuccess={() => router.refresh()} />
+        <AddAccountModal onSuccess={() => revalidateAll()} />
       </div>
 
       {/* All accounts */}
@@ -199,7 +198,7 @@ export function AccountsManager({ accounts }: AccountsManagerProps) {
                   <div className="flex flex-col gap-2 shrink-0">
                     {userAccount ? (
                       <>
-                        <CSVImportModal account={userAccount} onSuccess={() => router.refresh()} />
+                        <CSVImportModal account={userAccount} onSuccess={() => revalidateAll()} />
                         <Button
                           size="sm"
                           variant="ghost"
