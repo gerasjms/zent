@@ -1,48 +1,46 @@
 'use client'
 
-import { type BudgetSummary } from '@/types'
+import { type BudgetSummary, type AccountPurpose } from '@/types'
 import { formatCurrency } from '@/lib/utils/currency'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
 import { Badge } from '@/components/ui/badge'
 import { ShoppingCart, Sparkles, PiggyBank, TrendingUp } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useAccounts, useAssignments, useExchangeRate, toMxn } from '@/lib/hooks/use-finance-data'
 
 interface BudgetOverviewProps {
   summary: BudgetSummary
 }
 
 export function BudgetOverview({ summary }: BudgetOverviewProps) {
+  const { data: accounts = [] } = useAccounts()
+  const { data: assignments = [] } = useAssignments()
+  const usdRate = useExchangeRate()
+
+  // Saldo (en MXN) de las cuentas vinculadas a cada propósito.
+  const balanceForPurpose = (purpose: AccountPurpose) => {
+    const ids = new Set(assignments.filter(a => a.purpose === purpose).map(a => a.account_id))
+    return accounts
+      .filter(a => ids.has(a.id))
+      .reduce((s, a) => s + toMxn(Number(a.balance || 0), a.currency, usdRate), 0)
+  }
+
   const buckets = [
     {
-      key: 'needs',
-      label: 'Necesidades',
-      subtitle: `${summary.config.needs_pct}% del ingreso`,
-      icon: ShoppingCart,
-      color: 'text-amber-500',
-      bgColor: 'bg-amber-50 dark:bg-amber-950/30',
-      progressColor: 'bg-amber-500',
-      data: summary.needs,
+      key: 'needs', purpose: 'needs' as AccountPurpose, label: 'Necesidades',
+      icon: ShoppingCart, color: 'text-amber-500', bgColor: 'bg-amber-50 dark:bg-amber-950/30',
+      data: summary.needs, pct: summary.config.needs_pct,
     },
     {
-      key: 'wants',
-      label: 'Ocio y estilo de vida',
-      subtitle: `${summary.config.wants_pct}% del ingreso`,
-      icon: Sparkles,
-      color: 'text-violet-500',
-      bgColor: 'bg-violet-50 dark:bg-violet-950/30',
-      progressColor: 'bg-violet-500',
-      data: summary.wants,
+      key: 'wants', purpose: 'wants' as AccountPurpose, label: 'Ocio y estilo de vida',
+      icon: Sparkles, color: 'text-violet-500', bgColor: 'bg-violet-50 dark:bg-violet-950/30',
+      data: summary.wants, pct: summary.config.wants_pct,
     },
     {
-      key: 'savings',
-      label: 'Ahorro',
-      subtitle: `${summary.config.savings_pct}% del ingreso`,
-      icon: PiggyBank,
-      color: 'text-emerald-500',
-      bgColor: 'bg-emerald-50 dark:bg-emerald-950/30',
-      progressColor: 'bg-emerald-500',
-      data: summary.savings,
+      key: 'savings', purpose: 'saving' as AccountPurpose, label: 'Ahorro',
+      icon: PiggyBank, color: 'text-emerald-500', bgColor: 'bg-emerald-50 dark:bg-emerald-950/30',
+      data: summary.savings, pct: summary.config.savings_pct,
     },
   ]
 
@@ -82,12 +80,13 @@ export function BudgetOverview({ summary }: BudgetOverviewProps) {
         </CardContent>
       </Card>
 
-      {/* Budget buckets */}
+      {/* Budget buckets (combinado: objetivo + en cuentas + gastado) */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {buckets.map(({ key, label, subtitle, icon: Icon, color, bgColor, data }) => {
+        {buckets.map(({ key, purpose, label, icon: Icon, color, bgColor, data, pct }) => {
           const pctUsed = Math.min(data.pct_used, 100)
           const isOver = data.pct_used > 100
           const isWarning = data.pct_used > 80 && data.pct_used <= 100
+          const inAccounts = balanceForPurpose(purpose)
 
           return (
             <Card key={key} className="border">
@@ -103,16 +102,20 @@ export function BudgetOverview({ summary }: BudgetOverviewProps) {
                   ) : null}
                 </div>
                 <CardTitle className="text-sm font-semibold mt-2">{label}</CardTitle>
-                <p className="text-xs text-muted-foreground">{subtitle}</p>
+                <p className="text-xs text-muted-foreground">{pct}% · objetivo {formatCurrency(data.budget)}</p>
               </CardHeader>
               <CardContent className="pt-0 space-y-3">
                 <Progress
                   value={pctUsed}
                   className={cn('h-2', isOver && '[&>div]:bg-destructive', isWarning && '[&>div]:bg-amber-500')}
                 />
-                <div className="flex justify-between text-sm">
+                <div className="grid grid-cols-3 gap-2 text-sm">
                   <div>
-                    <p className="text-muted-foreground text-xs">Usado</p>
+                    <p className="text-muted-foreground text-xs">En cuentas</p>
+                    <p className="font-semibold">{formatCurrency(inAccounts)}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground text-xs">Gastado</p>
                     <p className={cn('font-semibold', isOver && 'text-destructive')}>
                       {formatCurrency(data.spent)}
                     </p>

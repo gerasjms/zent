@@ -46,7 +46,7 @@ export default function BudgetPage() {
         </div>
       </div>
 
-      <StrategyAllocation accounts={accounts} assignments={assignments} summary={summary} userId={user?.id ?? ''} />
+      <StrategyAllocation accounts={accounts} assignments={assignments} userId={user?.id ?? ''} />
     </div>
   )
 }
