@@ -266,7 +266,7 @@ export function TransactionsView({ transactions, accounts }: TransactionsViewPro
                               isIncome ? 'text-blue-600 dark:text-blue-400' :
                               isTransfer ? 'text-muted-foreground' : ''
                             )}>
-                              {isIncome ? '+' : isTransfer ? '' : '-'}{formatCurrency(tx.amount_mxn)}
+                              {isIncome ? '+' : isTransfer ? '' : '-'}{formatCurrency(tx.amount, tx.currency)}
                             </p>
                             <EditTransactionModal
                               transaction={tx}

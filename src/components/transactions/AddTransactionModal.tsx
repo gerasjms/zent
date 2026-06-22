@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { type Account, EXPENSE_CATEGORIES, type TransactionType } from '@/types'
+import { type Account, type Currency, EXPENSE_CATEGORIES, type TransactionType } from '@/types'
 import { createClient } from '@/lib/supabase/client'
 import { autoCategorize } from '@/lib/utils/categorize'
 import { fetchExchangeRate } from '@/lib/utils/currency'
@@ -20,7 +20,6 @@ import { format } from 'date-fns'
 
 const schema = z.object({
   amount: z.string().min(1, 'Ingresa un monto'),
-  currency: z.enum(['MXN', 'USD']),
   description: z.string().min(1, 'Agrega una descripción'),
   category: z.string().optional(),
   budget_category: z.string().min(1),
@@ -48,7 +47,6 @@ export function AddTransactionModal({ accounts, onSuccess, children }: AddTransa
   const { register, handleSubmit, control, watch, setValue, reset, formState: { errors } } = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: {
-      currency: 'MXN',
       budget_category: 'need',
       date: format(new Date(), 'yyyy-MM-dd'),
       account_id: '',
@@ -58,6 +56,9 @@ export function AddTransactionModal({ accounts, onSuccess, children }: AddTransa
   })
 
   const description = watch('description')
+  const selectedAccountId = watch('account_id')
+  // La moneda se hereda de la cuenta seleccionada (origen, en transferencias).
+  const txCurrency: Currency = accounts.find(a => a.id === selectedAccountId)?.currency ?? 'MXN'
 
   const categoryItems = txType === 'expense'
     ? [...EXPENSE_CATEGORIES.need.items, ...EXPENSE_CATEGORIES.want.items, ...EXPENSE_CATEGORIES.saving.items]
@@ -87,7 +88,7 @@ export function AddTransactionModal({ accounts, onSuccess, children }: AddTransa
       if (txType !== 'transfer' && !data.category) throw new Error('Selecciona una categoría')
       let amountMxn = numAmount
       let exchangeRate = 1
-      if (data.currency === 'USD') {
+      if (txCurrency === 'USD') {
         exchangeRate = await fetchExchangeRate()
         amountMxn = numAmount * exchangeRate
       }
@@ -98,7 +99,7 @@ export function AddTransactionModal({ accounts, onSuccess, children }: AddTransa
           user_id: user.id,
           type: 'transfer' as const,
           amount: numAmount,
-          currency: data.currency,
+          currency: txCurrency,
           amount_mxn: amountMxn,
           exchange_rate: exchangeRate,
           category: 'Transferencia',
@@ -121,7 +122,7 @@ export function AddTransactionModal({ accounts, onSuccess, children }: AddTransa
           account_id: data.account_id,
           type: txType,
           amount: numAmount,
-          currency: data.currency,
+          currency: txCurrency,
           amount_mxn: amountMxn,
           exchange_rate: exchangeRate,
           category: data.category,
@@ -173,35 +174,20 @@ export function AddTransactionModal({ accounts, onSuccess, children }: AddTransa
           </Tabs>
 
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 pt-2">
-            <div className="grid grid-cols-3 gap-2">
-              <div className="col-span-2 space-y-1">
-                <Label>Monto</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  placeholder="0.00"
-                  className="text-lg font-semibold"
-                  {...register('amount')}
-                />
-                {errors.amount && <p className="text-xs text-destructive">{errors.amount.message}</p>}
-              </div>
-              <div className="space-y-1">
-                <Label>Moneda</Label>
-                <Controller
-                  name="currency"
-                  control={control}
-                  render={({ field }) => (
-                    <Select value={field.value} onValueChange={v => field.onChange(v ?? 'MXN')}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="MXN">MXN</SelectItem>
-                        <SelectItem value="USD">USD</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  )}
-                />
-              </div>
+            <div className="space-y-1">
+              <Label>Monto <span className="text-muted-foreground font-normal">({txCurrency})</span></Label>
+              <Input
+                type="number"
+                step="0.01"
+                min="0"
+                placeholder="0.00"
+                className="text-lg font-semibold"
+                {...register('amount')}
+              />
+              <p className="text-xs text-muted-foreground">
+                Se registra en la moneda de la cuenta que elijas.
+              </p>
+              {errors.amount && <p className="text-xs text-destructive">{errors.amount.message}</p>}
             </div>
 
             <div className="space-y-1">

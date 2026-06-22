@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { type Account, type AccountType, ACCOUNT_CONFIG } from '@/types'
+import { type Account, type AccountType, type Currency, ACCOUNT_CONFIG } from '@/types'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency } from '@/lib/utils/currency'
 import { Card, CardContent } from '@/components/ui/card'
@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
 import { RefreshCw, Plus, Trash2 } from 'lucide-react'
-import { revalidateAll } from '@/lib/hooks/use-finance-data'
+import { revalidateAll, updateAccountCurrency } from '@/lib/hooks/use-finance-data'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -106,6 +106,27 @@ function AddAccountModal({ onSuccess }: { onSuccess: () => void }) {
   )
 }
 
+function CurrencySelect({ account }: { account: Account }) {
+  async function handleChange(value: string | null) {
+    if (!value || value === account.currency) return
+    try {
+      await updateAccountCurrency(account.id, value as Currency)
+      toast.success(`Moneda cambiada a ${value}`)
+    } catch (e) {
+      toast.error((e as Error).message)
+    }
+  }
+  return (
+    <Select value={account.currency} onValueChange={handleChange}>
+      <SelectTrigger className="h-7 w-[4.5rem] text-xs"><SelectValue /></SelectTrigger>
+      <SelectContent>
+        <SelectItem value="MXN">MXN</SelectItem>
+        <SelectItem value="USD">USD</SelectItem>
+      </SelectContent>
+    </Select>
+  )
+}
+
 export function AccountsManager({ accounts }: AccountsManagerProps) {
   const [adding, setAdding] = useState<string | null>(null)
   const supabase = createClient()
@@ -192,7 +213,10 @@ export function AccountsManager({ accounts }: AccountsManagerProps) {
                     </div>
                     <p className="text-xs text-muted-foreground mt-0.5">{subtitle[type]}</p>
                     {userAccount && (
-                      <p className="text-sm font-medium mt-1">{formatCurrency(userAccount.balance || 0, config.defaultCurrency)}</p>
+                      <div className="flex items-center gap-2 mt-1">
+                        <p className="text-sm font-medium">{formatCurrency(userAccount.balance || 0, userAccount.currency)}</p>
+                        <CurrencySelect account={userAccount} />
+                      </div>
                     )}
                   </div>
 
@@ -244,7 +268,10 @@ export function AccountsManager({ accounts }: AccountsManagerProps) {
                   <span className="text-2xl">{account.icon}</span>
                   <div className="flex-1">
                     <p className="font-medium">{account.name}</p>
-                    <p className="text-sm">{formatCurrency(account.balance || 0, account.currency)}</p>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm">{formatCurrency(account.balance || 0, account.currency)}</p>
+                      <CurrencySelect account={account} />
+                    </div>
                   </div>
                   <ReconcileModal account={account} />
                   <Button size="sm" variant="ghost" className="text-destructive" onClick={() => handleDelete(account.id)}>

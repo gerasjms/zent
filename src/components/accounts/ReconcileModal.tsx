@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { type Account } from '@/types'
 import { createClient } from '@/lib/supabase/client'
 import { revalidateAll } from '@/lib/hooks/use-finance-data'
-import { formatCurrency } from '@/lib/utils/currency'
+import { formatCurrency, fetchExchangeRate } from '@/lib/utils/currency'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -18,6 +18,7 @@ export function ReconcileModal({ account }: { account: Account }) {
   const [loading, setLoading] = useState(false)
   const supabase = createClient()
 
+  // El saldo de la cuenta está en SU moneda nativa.
   const calculated = Number(account.balance || 0)
   const realNum = parseFloat(real)
   const hasReal = !isNaN(realNum)
@@ -35,18 +36,21 @@ export function ReconcileModal({ account }: { account: Account }) {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) throw new Error('No autenticado')
 
-      // Ajuste marcado como interno: cuadra el balance pero NO cuenta para el
-      // presupuesto (el budget engine ignora is_internal_transfer).
+      // Conversión a MXN según la moneda de la cuenta (para que totales en pesos cuadren).
+      const rate = account.currency === 'USD' ? await fetchExchangeRate() : 1
+      const nativeAmount = Math.abs(diff)
+
+      // Ajuste interno: cuadra el balance pero NO cuenta para el presupuesto.
       const { error } = await supabase.from('transactions').insert({
         user_id: user.id,
         account_id: account.id,
         type: diff > 0 ? 'income' : 'expense',
-        amount: Math.abs(diff),
-        currency: 'MXN',
-        amount_mxn: Math.abs(diff),
-        exchange_rate: 1,
+        amount: nativeAmount,
+        currency: account.currency,
+        amount_mxn: nativeAmount * rate,
+        exchange_rate: rate,
         category: 'Ajuste de conciliación',
-        description: `Ajuste de conciliación (saldo real ${formatCurrency(realNum)})`,
+        description: `Ajuste de conciliación (saldo real ${formatCurrency(realNum, account.currency)})`,
         date: new Date().toISOString().split('T')[0],
         source: 'manual',
         is_internal_transfer: true,
@@ -77,10 +81,10 @@ export function ReconcileModal({ account }: { account: Account }) {
           <div className="space-y-4 pt-2">
             <div className="flex items-center justify-between text-sm">
               <span className="text-muted-foreground">Saldo calculado</span>
-              <span className="font-medium">{formatCurrency(calculated)}</span>
+              <span className="font-medium">{formatCurrency(calculated, account.currency)}</span>
             </div>
             <div className="space-y-1.5">
-              <Label>Saldo real (lo que dice tu banco/app)</Label>
+              <Label>Saldo real en {account.currency} (lo que dice tu banco/app)</Label>
               <Input
                 type="number"
                 step="0.01"
@@ -93,7 +97,7 @@ export function ReconcileModal({ account }: { account: Account }) {
             {hasReal && Math.abs(diff) >= 0.01 && (
               <div className="rounded-lg bg-muted p-3 text-sm">
                 Se creará un ajuste de{' '}
-                <span className="font-semibold">{formatCurrency(Math.abs(diff))}</span>{' '}
+                <span className="font-semibold">{formatCurrency(Math.abs(diff), account.currency)}</span>{' '}
                 ({diff > 0 ? 'ingreso' : 'gasto'}) para que tu saldo quede exacto.
               </div>
             )}

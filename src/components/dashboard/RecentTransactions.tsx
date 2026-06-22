@@ -87,7 +87,7 @@ export function RecentTransactions({ transactions }: RecentTransactionsProps) {
                     isIncome ? 'text-blue-600 dark:text-blue-400' :
                     isTransfer ? 'text-muted-foreground' : 'text-foreground'
                   )}>
-                    {isIncome ? '+' : isTransfer ? '' : '-'}{formatCurrency(tx.amount_mxn)}
+                    {isIncome ? '+' : isTransfer ? '' : '-'}{formatCurrency(tx.amount, tx.currency)}
                   </p>
                 </div>
               )

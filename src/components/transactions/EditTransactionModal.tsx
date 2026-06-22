@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { type Account, type Transaction, EXPENSE_CATEGORIES, type TransactionType, type BudgetCategory } from '@/types'
+import { type Account, type Transaction, type Currency, EXPENSE_CATEGORIES, type TransactionType, type BudgetCategory } from '@/types'
 import { createClient } from '@/lib/supabase/client'
 import { fetchExchangeRate } from '@/lib/utils/currency'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -18,7 +18,6 @@ import { Loader2, Pencil } from 'lucide-react'
 
 const schema = z.object({
   amount: z.string().min(1),
-  currency: z.enum(['MXN', 'USD']),
   description: z.string().min(1, 'Agrega una descripción'),
   category: z.string().optional(),
   budget_category: z.string().min(1),
@@ -42,11 +41,10 @@ export function EditTransactionModal({ transaction, accounts, onSuccess }: EditT
   const [loading, setLoading] = useState(false)
   const supabase = createClient()
 
-  const { register, handleSubmit, control, setValue, reset, formState: { errors } } = useForm<FormValues>({
+  const { register, handleSubmit, control, watch, setValue, reset, formState: { errors } } = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: {
       amount: String(transaction.amount),
-      currency: transaction.currency,
       description: transaction.description,
       category: transaction.category ?? '',
       budget_category: transaction.budget_category ?? 'need',
@@ -56,6 +54,9 @@ export function EditTransactionModal({ transaction, accounts, onSuccess }: EditT
       notes: transaction.notes ?? '',
     },
   })
+
+  const selectedAccountId = watch('account_id')
+  const txCurrency: Currency = accounts.find(a => a.id === selectedAccountId)?.currency ?? transaction.currency
 
   const categoryItems = txType === 'expense'
     ? [...EXPENSE_CATEGORIES.need.items, ...EXPENSE_CATEGORIES.want.items, ...EXPENSE_CATEGORIES.saving.items]
@@ -76,7 +77,7 @@ export function EditTransactionModal({ transaction, accounts, onSuccess }: EditT
 
       let amountMxn = numAmount
       let exchangeRate = 1
-      if (data.currency === 'USD') {
+      if (txCurrency === 'USD') {
         exchangeRate = await fetchExchangeRate()
         amountMxn = numAmount * exchangeRate
       }
@@ -84,7 +85,7 @@ export function EditTransactionModal({ transaction, accounts, onSuccess }: EditT
       const { error } = await supabase.from('transactions').update({
         type: txType,
         amount: numAmount,
-        currency: data.currency,
+        currency: txCurrency,
         amount_mxn: amountMxn,
         exchange_rate: exchangeRate,
         category: data.category ?? '',
@@ -133,34 +134,16 @@ export function EditTransactionModal({ transaction, accounts, onSuccess }: EditT
           </Tabs>
 
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 pt-2">
-            <div className="grid grid-cols-3 gap-2">
-              <div className="col-span-2 space-y-1">
-                <Label>Monto</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  className="text-lg font-semibold"
-                  {...register('amount')}
-                />
-                {errors.amount && <p className="text-xs text-destructive">{errors.amount.message}</p>}
-              </div>
-              <div className="space-y-1">
-                <Label>Moneda</Label>
-                <Controller
-                  name="currency"
-                  control={control}
-                  render={({ field }) => (
-                    <Select value={field.value} onValueChange={v => field.onChange(v ?? 'MXN')}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="MXN">MXN</SelectItem>
-                        <SelectItem value="USD">USD</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  )}
-                />
-              </div>
+            <div className="space-y-1">
+              <Label>Monto <span className="text-muted-foreground font-normal">({txCurrency})</span></Label>
+              <Input
+                type="number"
+                step="0.01"
+                min="0"
+                className="text-lg font-semibold"
+                {...register('amount')}
+              />
+              {errors.amount && <p className="text-xs text-destructive">{errors.amount.message}</p>}
             </div>
 
             <div className="space-y-1">

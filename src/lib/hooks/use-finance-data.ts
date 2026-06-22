@@ -2,7 +2,8 @@
 
 import useSWR, { mutate } from 'swr'
 import { createClient } from '@/lib/supabase/client'
-import type { Account, Transaction, BudgetConfig, AccountPurpose } from '@/types'
+import { fetchExchangeRate } from '@/lib/utils/currency'
+import type { Account, Transaction, BudgetConfig, AccountPurpose, Currency } from '@/types'
 
 const supabase = createClient()
 
@@ -13,6 +14,31 @@ const supabase = createClient()
  */
 export function revalidateAll() {
   return mutate(() => true)
+}
+
+/** Tipo de cambio USD→MXN del día (cacheado ~1h por SWR). */
+export function useExchangeRate() {
+  const { data } = useSWR('usd-mxn-rate', () => fetchExchangeRate(), {
+    revalidateOnFocus: false,
+    dedupingInterval: 3_600_000,
+  })
+  // 17.5 es el mismo fallback que usa fetchExchangeRate mientras carga.
+  return data ?? 17.5
+}
+
+/** Convierte un saldo en su moneda nativa a MXN usando el tipo de cambio dado. */
+export function toMxn(amount: number, currency: Currency, usdRate: number): number {
+  return currency === 'USD' ? amount * usdRate : amount
+}
+
+/** Cambia la moneda de una cuenta (MXN/USD). */
+export async function updateAccountCurrency(accountId: string, currency: Currency) {
+  const { error } = await supabase
+    .from('accounts')
+    .update({ currency, updated_at: new Date().toISOString() })
+    .eq('id', accountId)
+  if (error) throw error
+  await revalidateAll()
 }
 
 // Nota: las políticas RLS (auth.uid() = user_id) ya filtran las filas por usuario,

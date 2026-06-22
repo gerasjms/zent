@@ -1,7 +1,7 @@
 'use client'
 
 import { type Account, type AccountPurpose, type BudgetSummary } from '@/types'
-import { type AccountAssignmentRow, setAccountPurpose } from '@/lib/hooks/use-finance-data'
+import { type AccountAssignmentRow, setAccountPurpose, useExchangeRate, toMxn } from '@/lib/hooks/use-finance-data'
 import { formatCurrency } from '@/lib/utils/currency'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -23,11 +23,15 @@ interface StrategyAllocationProps {
 }
 
 export function StrategyAllocation({ accounts, assignments, summary, userId }: StrategyAllocationProps) {
+  const usdRate = useExchangeRate()
+
   const purposeOf = (accountId: string): AccountPurpose | null =>
     assignments.find(a => a.account_id === accountId)?.purpose ?? null
 
   const accountsFor = (key: StrategyKey) => accounts.filter(a => purposeOf(a.id) === key)
-  const realFor = (key: StrategyKey) => accountsFor(key).reduce((s, a) => s + Number(a.balance || 0), 0)
+  // Saldos convertidos a MXN para comparar contra el objetivo (que está en MXN).
+  const realFor = (key: StrategyKey) =>
+    accountsFor(key).reduce((s, a) => s + toMxn(Number(a.balance || 0), a.currency, usdRate), 0)
   const targetFor = (key: StrategyKey) =>
     key === 'needs' ? summary.needs.budget : key === 'wants' ? summary.wants.budget : summary.savings.budget
 

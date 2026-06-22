@@ -2,6 +2,7 @@
 
 import { type Account } from '@/types'
 import { formatCurrency } from '@/lib/utils/currency'
+import { useExchangeRate, toMxn } from '@/lib/hooks/use-finance-data'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { RefreshCw, Wifi, WifiOff } from 'lucide-react'
@@ -16,7 +17,9 @@ interface AccountCardsProps {
 }
 
 export function AccountCards({ accounts, onSyncAccount, syncing }: AccountCardsProps) {
-  const totalBalance = accounts.reduce((sum, acc) => sum + (acc.balance || 0), 0)
+  const usdRate = useExchangeRate()
+  // Total en MXN: convierte los saldos en USD al tipo de cambio del día.
+  const totalBalance = accounts.reduce((sum, acc) => sum + toMxn(acc.balance || 0, acc.currency, usdRate), 0)
 
   return (
     <div className="space-y-3">

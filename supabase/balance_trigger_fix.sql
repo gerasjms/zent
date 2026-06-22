@@ -1,13 +1,13 @@
 -- ============================================================
--- FIX: alinear el trigger de balance con la lógica del frontend
+-- Saldo NATIVO por cuenta (multimoneda)
 -- ============================================================
--- Antes, recalculate_account_balance usaba `is_internal_transfer` para las
--- transferencias, pero el cálculo del frontend (calcAccountBalances) usa
--- `is_transfer_credit`. Eso hacía que accounts.balance no coincidiera con lo
--- que veía el usuario. Esta migración alinea la BD con el frontend:
---   income   -> + amount_mxn
---   expense  -> - amount_mxn
---   transfer -> + amount_mxn si is_transfer_credit, si no - amount_mxn
+-- El saldo de cada cuenta se calcula en SU PROPIA moneda, sumando `amount`
+-- (no `amount_mxn`). Así una cuenta en USD guarda su saldo en dólares y una
+-- en MXN en pesos. La conversión a pesos para totales se hace en el front
+-- con el tipo de cambio del día.
+--   income   -> + amount
+--   expense  -> - amount
+--   transfer -> + amount si is_transfer_credit, si no - amount
 --
 -- Ejecutar en: Supabase Dashboard > SQL Editor
 -- ============================================================
@@ -15,15 +15,15 @@
 create or replace function recalculate_account_balance(p_account_id uuid)
 returns decimal as $$
 declare
-  v_balance decimal(12,2);
+  v_balance decimal(14,2);
 begin
   select
     coalesce(
       sum(case
-        when type = 'income'  then coalesce(amount_mxn, 0)
-        when type = 'expense' then -coalesce(amount_mxn, 0)
-        when type = 'transfer' and is_transfer_credit then coalesce(amount_mxn, 0)
-        when type = 'transfer' then -coalesce(amount_mxn, 0)
+        when type = 'income'  then coalesce(amount, 0)
+        when type = 'expense' then -coalesce(amount, 0)
+        when type = 'transfer' and is_transfer_credit then coalesce(amount, 0)
+        when type = 'transfer' then -coalesce(amount, 0)
         else 0
       end), 0)
   into v_balance
@@ -37,14 +37,14 @@ begin
 end;
 $$ language plpgsql security definer;
 
--- Recalcular TODOS los balances existentes con la lógica corregida.
+-- Recalcular TODOS los saldos existentes en su moneda nativa.
 update public.accounts a
 set balance = coalesce((
   select sum(case
-    when t.type = 'income'  then coalesce(t.amount_mxn, 0)
-    when t.type = 'expense' then -coalesce(t.amount_mxn, 0)
-    when t.type = 'transfer' and t.is_transfer_credit then coalesce(t.amount_mxn, 0)
-    when t.type = 'transfer' then -coalesce(t.amount_mxn, 0)
+    when t.type = 'income'  then coalesce(t.amount, 0)
+    when t.type = 'expense' then -coalesce(t.amount, 0)
+    when t.type = 'transfer' and t.is_transfer_credit then coalesce(t.amount, 0)
+    when t.type = 'transfer' then -coalesce(t.amount, 0)
     else 0
   end)
   from public.transactions t
