@@ -15,6 +15,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { CSVImportModal } from './CSVImportModal'
+import { ReconcileModal } from './ReconcileModal'
 import { formatDistanceToNow } from 'date-fns'
 import { es } from 'date-fns/locale'
 
@@ -198,6 +199,7 @@ export function AccountsManager({ accounts }: AccountsManagerProps) {
                   <div className="flex flex-col gap-2 shrink-0">
                     {userAccount ? (
                       <>
+                        <ReconcileModal account={userAccount} />
                         <CSVImportModal account={userAccount} onSuccess={() => revalidateAll()} />
                         <Button
                           size="sm"
@@ -244,6 +246,7 @@ export function AccountsManager({ accounts }: AccountsManagerProps) {
                     <p className="font-medium">{account.name}</p>
                     <p className="text-sm">{formatCurrency(account.balance || 0, account.currency)}</p>
                   </div>
+                  <ReconcileModal account={account} />
                   <Button size="sm" variant="ghost" className="text-destructive" onClick={() => handleDelete(account.id)}>
                     <Trash2 className="w-4 h-4" />
                   </Button>

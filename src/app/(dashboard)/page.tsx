@@ -21,7 +21,7 @@ const DEFAULT_BUDGET: BudgetConfig = {
 
 export default function DashboardPage() {
   const { data: accounts = [], isLoading: loadingAccounts } = useAccounts()
-  const { data: transactions = [], isLoading: loadingTx } = useTransactions(200)
+  const { data: transactions = [], isLoading: loadingTx } = useTransactions(500)
   const { data: budgetConfig, isLoading: loadingBudget } = useBudgetConfig()
 
   // Solo skeleton en el PRIMER load. En navegaciones posteriores SWR sirve la

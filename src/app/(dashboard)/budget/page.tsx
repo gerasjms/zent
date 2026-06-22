@@ -5,7 +5,8 @@ import { type BudgetConfig } from '@/types'
 import { BudgetSettings } from '@/components/budget/BudgetSettings'
 import { BudgetDetailChart } from '@/components/budget/BudgetDetailChart'
 import { BudgetOverview } from '@/components/dashboard/BudgetOverview'
-import { useTransactions, useBudgetConfig, useUser } from '@/lib/hooks/use-finance-data'
+import { StrategyAllocation } from '@/components/budget/StrategyAllocation'
+import { useTransactions, useBudgetConfig, useUser, useAccounts, useAssignments } from '@/lib/hooks/use-finance-data'
 import { BudgetSkeleton } from '@/components/layout/loading-states'
 
 const DEFAULT_BUDGET: BudgetConfig = {
@@ -17,6 +18,8 @@ export default function BudgetPage() {
   const { data: transactions = [], isLoading: loadingTx } = useTransactions(500)
   const { data: budgetConfig, isLoading: loadingBudget } = useBudgetConfig()
   const { data: user, isLoading: loadingUser } = useUser()
+  const { data: accounts = [] } = useAccounts()
+  const { data: assignments = [] } = useAssignments()
 
   if (loadingTx || loadingBudget || loadingUser) return <BudgetSkeleton />
 
@@ -42,6 +45,8 @@ export default function BudgetPage() {
           <BudgetSettings config={config} userId={user?.id ?? ''} />
         </div>
       </div>
+
+      <StrategyAllocation accounts={accounts} assignments={assignments} userId={user?.id ?? ''} />
     </div>
   )
 }

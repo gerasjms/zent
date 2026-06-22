@@ -2,7 +2,7 @@
 
 import useSWR, { mutate } from 'swr'
 import { createClient } from '@/lib/supabase/client'
-import type { Account, Transaction, BudgetConfig } from '@/types'
+import type { Account, Transaction, BudgetConfig, AccountPurpose } from '@/types'
 
 const supabase = createClient()
 
@@ -66,6 +66,53 @@ export function useBudgetConfig() {
     if (error) throw error
     return (data as BudgetConfig | null) ?? null
   })
+}
+
+export interface AccountAssignmentRow {
+  id: string
+  user_id: string
+  account_id: string
+  purpose: AccountPurpose
+  allocated_amount: number
+  is_manual: boolean
+}
+
+/** Asignaciones manuales de cuentas a buckets de estrategia (needs/wants/saving). */
+export function useAssignments() {
+  return useSWR('account_assignments', async () => {
+    const { data, error } = await supabase.from('account_assignments').select('*')
+    if (error) throw error
+    return (data ?? []) as AccountAssignmentRow[]
+  })
+}
+
+/**
+ * Crea/actualiza cuánto del saldo de una cuenta va a un propósito.
+ * Si el monto es 0 o menor, elimina la asignación. Revalida la caché al final.
+ */
+export async function setAssignment(
+  userId: string,
+  accountId: string,
+  purpose: AccountPurpose,
+  amount: number,
+) {
+  if (amount > 0) {
+    const { error } = await supabase
+      .from('account_assignments')
+      .upsert(
+        { user_id: userId, account_id: accountId, purpose, allocated_amount: amount, is_manual: true },
+        { onConflict: 'user_id,account_id,purpose' },
+      )
+    if (error) throw error
+  } else {
+    const { error } = await supabase
+      .from('account_assignments')
+      .delete()
+      .eq('account_id', accountId)
+      .eq('purpose', purpose)
+    if (error) throw error
+  }
+  await revalidateAll()
 }
 
 export interface TaxPayment {
